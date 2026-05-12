@@ -1,0 +1,301 @@
+/**
+ * whisperService — 真实语音识别 + 莱文斯坦比分
+ *
+ * Pipeline:
+ *   audioFile → 静音检测(文件大小) → Whisper API → 文本比对 → 0-100 分
+ *
+ * API 密钥需要自行设置：
+ *   - 方案 A（推荐）：OpenAI Whisper API
+ *   - 方案 B：可替换为其他兼容 OpenAI 格式的 ASR 服务
+ */
+import * as FileSystem from 'expo-file-system/legacy';
+
+// ========== 配置 ==========
+// 替换成你的 OpenAI API Key（或兼容 Whisper 的服务）
+const WHISPER_API_KEY = 'YOUR_OPENAI_API_KEY_HERE';
+const WHISPER_API_URL = 'https://api.openai.com/v1/audio/transcriptions';
+const WHISPER_MODEL = 'whisper-1';
+
+// 静音检测阈值（文件 < 2KB 视为静音/无有效人声）
+const SILENCE_FILE_SIZE_THRESHOLD = 2048;
+
+// ========== 工具函数 ==========
+
+/**
+ * 规范化文本：小写 + 移除标点 + 多余空格
+ * 用于比对前处理，防止因大小写/标点扣分
+ */
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[.,!?;:'"(){}[\]«»-]/g, '') // 移除标点
+    .replace(/\s+/g, ' ')                    // 合并空格
+    .trim();
+}
+
+/**
+ * 莱文斯坦编辑距离（Levenshtein Distance）算法
+ * 返回将一个字符串变成另一个所需的最小编辑次数
+ */
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = Math.min(
+          dp[i - 1][j] + 1,    // 删除
+          dp[i][j - 1] + 1,    // 插入
+          dp[i - 1][j - 1] + 1 // 替换
+        );
+      }
+    }
+  }
+  return dp[m][n];
+}
+
+/**
+ * 根据莱文斯坦距离计算 0-100 得分
+ * 完全匹配 → 100 分
+ * 半数字符不同 → ~50 分
+ * 完全空串 → 0 分
+ */
+export function levenshteinScore(recognized: string, target: string): number {
+  const normRecognized = normalize(recognized);
+  const normTarget = normalize(target);
+
+  console.log(`[whisperService] 比对: "${normRecognized}" vs "${normTarget}"`);
+
+  // 如果识别结果为空 → 0 分
+  if (!normRecognized) return 0;
+
+  // 如果目标为空 → 0 分（理论上不会发生）
+  if (!normTarget) return 0;
+
+  const distance = levenshteinDistance(normRecognized, normTarget);
+  const maxLen = Math.max(normRecognized.length, normTarget.length);
+
+  // 编辑距离占比
+  const errorRatio = distance / maxLen;
+
+  // 得分 = (1 - errorRatio) * 100，四舍五入取整
+  const rawScore = Math.round((1 - errorRatio) * 100);
+  return Math.max(0, Math.min(100, rawScore));
+}
+
+// ========== 主函数 ==========
+
+/**
+ * 静音检测：检查录音文件大小是否过小
+ * @param audioUri 录音文件 URI
+ * @returns { isSilent: boolean; reason?: string }
+ */
+export async function checkSilence(audioUri: string): Promise<{
+  isSilent: boolean;
+  reason?: string;
+  fileSize?: number;
+}> {
+  try {
+    const info = await FileSystem.getInfoAsync(audioUri);
+    if (!info.exists) {
+      return { isSilent: true, reason: '录音文件不存在' };
+    }
+
+    const size = info.size ?? 0;
+    if (size < SILENCE_FILE_SIZE_THRESHOLD) {
+      return {
+        isSilent: true,
+        reason: '没听到声音，请大声读出来',
+        fileSize: size,
+      };
+    }
+
+    return { isSilent: false, fileSize: size };
+  } catch (err) {
+    return { isSilent: true, reason: '无法读取录音文件' };
+  }
+}
+
+/**
+ * 检查错误是否为超时/中止（兼容 Hermes 引擎与各种 polyfill）
+ */
+function isAbortError(err: any): boolean {
+  return (
+    err?.name === 'AbortError' ||
+    err?.name === 'Aborted' ||
+    err?.message === 'Aborted' ||
+    err?.message?.includes('abort') ||
+    err?.message?.includes('timeout') ||
+    err?.message?.includes('time out')
+  );
+}
+
+// 超时配置
+const FIRST_ATTEMPT_TIMEOUT_MS = 30000;  // 首次：30 秒（上传 + 转写需要足够时间）
+const RETRY_TIMEOUT_MS = 30000;          // 重试：同样 30 秒
+const MAX_RETRIES = 1;                   // 1 次自动重试
+
+/**
+ * 单次发送 Whisper 请求
+ */
+async function whisperFetch(audioUri: string, signal: AbortSignal): Promise<string> {
+  const ext = audioUri.split('.').pop()?.toLowerCase() || 'm4a';
+  const mimeMap: Record<string, string> = {
+    m4a: 'audio/m4a',
+    wav: 'audio/wav',
+    mp3: 'audio/mpeg',
+    ogg: 'audio/ogg',
+    aac: 'audio/aac',
+    webm: 'audio/webm',
+  };
+  const mimeType = mimeMap[ext] || 'audio/m4a';
+
+  const formData = new FormData();
+  const audioFile = {
+    uri: audioUri,
+    type: mimeType,
+    name: `recording.${ext}`,
+  } as any;
+  formData.append('file', audioFile);
+  formData.append('model', WHISPER_MODEL);
+  formData.append('language', 'en');
+  formData.append('response_format', 'json');
+
+  console.log(`[whisperService] 发送请求: ext=${ext}, mime=${mimeType}`);
+
+  const response = await fetch(WHISPER_API_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${WHISPER_API_KEY}` },
+    body: formData,
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    throw new Error(`Whisper API 返回错误 (${response.status}): ${errorBody || response.statusText}`);
+  }
+
+  const result = await response.json();
+  return (result.text || '').trim();
+}
+
+/**
+ * 调用 Whisper API 将音频转写为文字（带超时 + 1 次自动重试）
+ * @param audioUri 录音文件 URI
+ * @returns 转写后的文本
+ */
+export async function transcribeAudio(audioUri: string): Promise<string> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // 首次和重试使用不同的超时时间
+    const timeoutMs = attempt === 0 ? FIRST_ATTEMPT_TIMEOUT_MS : RETRY_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      if (attempt > 0) {
+        console.log(`[whisperService] 第 ${attempt + 1} 次尝试（自动重试）...`);
+      }
+
+      console.log(`[whisperService] 发送请求 (超时=${timeoutMs}ms, 第${attempt + 1}次)`);
+      const recognizedText = await whisperFetch(audioUri, controller.signal);
+      clearTimeout(timeoutId);
+
+      console.log(`[whisperService] 识别结果: "${recognizedText}"`);
+      return recognizedText;
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      lastError = err;
+
+      if (isAbortError(err)) {
+        console.warn(`[whisperService] ⚠️ 请求超时（${timeoutMs}ms）第 ${attempt + 1} 次`);
+      } else {
+        console.warn(`[whisperService] ⚠️ 请求失败第 ${attempt + 1} 次: ${err.message}`);
+      }
+
+      if (attempt < MAX_RETRIES) {
+        // 重试前等待 500ms，让网络连接重置
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+  }
+
+  // 所有尝试均失败 — 给出友好提示而不是原始 Aborted
+  if (isAbortError(lastError)) {
+    throw new Error('Whisper 请求超时，请检查网络后重试');
+  }
+  throw new Error(lastError?.message || 'Whisper 请求失败，请稍后再试');
+}
+
+/**
+ * 一站式语音评测
+ * 1. 静音检测 → 静音则返回 0 分
+ * 2. Whisper 转写 → 获取识别文本
+ * 3. 莱文斯坦比对 → 打分
+ *
+ * @param audioUri 录音文件 URI
+ * @param targetText 目标参考文本（单词或例句）
+ * @returns { score: 0-100, recognized: string, target: string, isSilent: boolean }
+ */
+export async function evaluateWithWhisper(
+  audioUri: string,
+  targetText: string
+): Promise<{
+  score: number;
+  recognized: string;
+  target: string;
+  isSilent: boolean;
+}> {
+  // Step 1: 静音检测
+  const silenceCheck = await checkSilence(audioUri);
+  if (silenceCheck.isSilent) {
+    console.log('[whisperService] ⚠️ 静音检测触发:', silenceCheck.reason || '无声音');
+    return {
+      score: 0,
+      recognized: '',
+      target: targetText,
+      isSilent: true,
+    };
+  }
+
+  // Step 2: Whisper 转写
+  let recognized: string;
+  try {
+    recognized = await transcribeAudio(audioUri);
+  } catch (err: any) {
+    console.error('[whisperService] ❌ Whisper 转写失败:', err.message);
+    // API 失败时返回 0 分，避免 UI 卡死
+    return {
+      score: 0,
+      recognized: '',
+      target: targetText,
+      isSilent: false,
+    };
+  }
+
+  // Step 2.5: 空转写结果拦截 — 防止 score=0 时进入打分逻辑，
+  // 直接提示用户没听到声音，不要进入 < 50 分重试流程
+  const cleaned = normalize(recognized);
+  if (!cleaned || cleaned.length < 1) {
+    console.warn('[whisperService] ⚠️ 转写结果为空或仅含标点，抛出 EMPTY_AUDIO');
+    throw new Error('EMPTY_AUDIO');
+  }
+
+  // Step 3: 莱文斯坦打分
+  const score = levenshteinScore(recognized, targetText);
+
+  return {
+    score,
+    recognized,
+    target: targetText,
+    isSilent: false,
+  };
+}
