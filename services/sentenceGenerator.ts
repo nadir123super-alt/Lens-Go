@@ -20,6 +20,12 @@ interface ExampleSentence {
   c: string; // 中文翻译
 }
 
+interface GenerateOptions {
+  word: string;
+  translation?: string;
+  pos?: string; // 词性: adjective, noun, verb, adverb
+}
+
 /**
  * 将句子标准化：
  *   - 仅首字母大写
@@ -37,63 +43,132 @@ function normalizeSentence(sentence: string): string {
   return trimmed;
 }
 
-// ── 句型模板 ──
-// 每个模板必须使用 ${word} 嵌入目标单词（不可使用 "this word" 等泛称）
-// 中文翻译也必须包含该单词的中文释义对应表述
-const sentenceTemplates: Array<(word: string) => ExampleSentence[]> = [
-  // 模板 1: 一般疑问句
-  (word) => [
+// ── 按词性分类的句型模板 ──
+// 每个模板是一个函数，接收 word 和 translation 参数
+// 函数在调用时才执行模板字符串插值
+
+// 形容词模板 (adjective)
+const adjectiveTemplates: Array<(word: string, translation: string) => ExampleSentence[]> = [
+  (word, translation) => [
     {
-      e: `Do you know how to use ${word} in a sentence?`,
-      c: `你知道如何在一个句子中使用"${word}"吗？`,
+      e: `The ${word} flowers bloomed in the garden.`,
+      c: `花园里盛开着${translation}的花朵。`,
     },
     {
-      e: `Can you tell me the meaning of ${word}?`,
-      c: `你能告诉我"${word}"的意思吗？`,
-    },
-  ],
-  // 模板 2: 陈述句 + 学习用法
-  (word) => [
-    {
-      e: `Learning how to pronounce ${word} is very important.`,
-      c: `学会如何发音"${word}"是非常重要的。`,
-    },
-    {
-      e: `The word ${word} is often used in daily conversations.`,
-      c: `"${word}"这个词在日常对话中经常被使用。`,
+      e: `She gave me a ${word} response to my question.`,
+      c: `她对我的问题给出了${translation}的回答。`,
     },
   ],
-  // 模板 3: 日常场景
-  (word) => [
+  (word, translation) => [
     {
-      e: `I need to practice saying ${word} more often.`,
-      c: `我需要更频繁地练习说"${word}"。`,
+      e: `It was a ${word} day for our picnic.`,
+      c: `对我们的野餐来说，这是${translation}的一天。`,
     },
     {
-      e: `Please repeat the word ${word} after me.`,
-      c: `请跟着我重复"${word}"这个词。`,
-    },
-  ],
-  // 模板 4: 记忆 + 使用
-  (word) => [
-    {
-      e: `It is helpful to write down the word ${word} in your notebook.`,
-      c: `把"${word}"这个词写在笔记本上是有帮助的。`,
-    },
-    {
-      e: `I want to use the word ${word} in my English speech.`,
-      c: `我想在我的英语演讲中使用"${word}"这个词。`,
+      e: `He made a ${word} decision that changed everything.`,
+      c: `他做了一个${translation}的决定，改变了一切。`,
     },
   ],
-  // 模板 5: 理解 + 练习
-  (word) => [
+  (word, translation) => [
     {
-      e: `The teacher asked the class to spell the word ${word}.`,
-      c: `老师让全班同学拼写"${word}"这个词。`,
+      e: `The ${word} music made everyone feel relaxed.`,
+      c: `${translation}的音乐让每个人都感到放松。`,
     },
     {
-      e: `I finally understand what the word ${word} means.`,
-      c: `我终于理解了"${word}"这个词的含义。`,
+      e: `We enjoyed a ${word} evening by the fire.`,
+      c: `我们在篝火旁度过了${translation}的夜晚。`,
+    },
+  ],
+];
+
+// 名词模板 (noun)
+const nounTemplates: Array<(word: string, translation: string) => ExampleSentence[]> = [
+  (word, translation) => [
+    {
+      e: `The ${word} is an important part of our culture.`,
+      c: `${translation}是我们文化的重要组成部分。`,
+    },
+    {
+      e: `She gave me a beautiful ${word} as a gift.`,
+      c: `她送给我一个漂亮的${translation}作为礼物。`,
+    },
+  ],
+  (word, translation) => [
+    {
+      e: `We need to buy some fresh ${word} for dinner.`,
+      c: `我们需要买一些新鲜的${translation}做晚餐。`,
+    },
+    {
+      e: `The ${word} was placed carefully on the table.`,
+      c: `${translation}被小心地放在桌子上。`,
+    },
+  ],
+  (word, translation) => [
+    {
+      e: `He spent hours reading about ${word} history.`,
+      c: `他花了几个小时阅读关于${translation}的历史。`,
+    },
+    {
+      e: `The ${word} stood tall against the blue sky.`,
+      c: `${translation}高耸入云，映衬着蓝天。`,
+    },
+  ],
+];
+
+// 动词模板 (verb)
+const verbTemplates: Array<(word: string, translation: string) => ExampleSentence[]> = [
+  (word, translation) => [
+    {
+      e: `We decided to ${word} together next weekend.`,
+      c: `我们决定下周末一起${translation}。`,
+    },
+    {
+      e: `She likes to ${word} early in the morning.`,
+      c: `她喜欢早上早点${translation}。`,
+    },
+  ],
+  (word, translation) => [
+    {
+      e: `They plan to ${word} the project next month.`,
+      c: `他们计划下个月${translation}这个项目。`,
+    },
+    {
+      e: `Can you teach me how to ${word} properly?`,
+      c: `你能教我如何正确${translation}吗？`,
+    },
+  ],
+  (word, translation) => [
+    {
+      e: `He promised to ${word} as soon as possible.`,
+      c: `他答应尽快${translation}。`,
+    },
+    {
+      e: `We should ${word} more often to stay healthy.`,
+      c: `我们应该经常${translation}以保持健康。`,
+    },
+  ],
+];
+
+// 通用模板（适用于所有词性）
+const universalTemplates: Array<(word: string, translation: string) => ExampleSentence[]> = [
+  (word, translation) => [
+    {
+      e: `I learned the word ${word} in my English class.`,
+      c: `我在英语课上学到了${translation}这个词。`,
+    },
+    {
+      e: `Can you use ${word} in a sentence for me?`,
+      c: `你能帮我用${translation}造个句子吗？`,
+    },
+  ],
+  (word, translation) => [
+    {
+      e: `The meaning of ${word} is very interesting.`,
+      c: `${translation}的含义非常有趣。`,
+    },
+    {
+      e: `I hear the word ${word} quite often these days.`,
+      c: `这些天我经常听到${translation}这个词。`,
     },
   ],
 ];
@@ -102,17 +177,23 @@ const sentenceTemplates: Array<(word: string) => ExampleSentence[]> = [
  * 为指定单词自动生成两个包含该单词的例句
  *
  * 策略：
- *   1. 基于单词的哈希值选择一个模板组
+ *   1. 根据词性选择合适的模板组
  *   2. 将目标单词动态嵌入到英文例句中
- *   3. 生成对应的中文翻译示例
+ *   3. 将中文翻译嵌入到中文例句中
  *   4. 经过 normalizeSentence 标准化
  *
- * @param word 目标英文单词（用于嵌入例句 + 哈希选择模板）
+ * @param options 包含 word, translation, pos 的选项对象
  * @returns 2 个 { e, c } 例句，每个例句都包含目标单词
  */
-export function generateExampleSentences(word: string): ExampleSentence[] {
+export function generateExampleSentences(
+  options: GenerateOptions | string
+): ExampleSentence[] {
+  // 兼容旧接口（只传 word 字符串）
+  const { word, translation, pos } = typeof options === 'string' 
+    ? { word: options, translation: '', pos: '' }
+    : options;
+
   if (!word || !word.trim()) {
-    // 兜底：如果单词为空，返回带默认单词的例句
     return [
       { e: 'Please practice this word again and again.', c: '请反复练习这个单词。' },
       { e: 'Try to use this word in a sentence every day.', c: '尝试每天用这个单词造一个句子。' },
@@ -120,13 +201,41 @@ export function generateExampleSentences(word: string): ExampleSentence[] {
   }
 
   const cleanWord = word.trim().toLowerCase();
+  const displayTranslation = translation || cleanWord;
+
+  // 根据词性选择模板组
+  let templates: Array<(word: string, translation: string) => ExampleSentence[]>;
+  switch (pos?.toLowerCase()) {
+    case 'adjective':
+    case 'adj':
+    case '形容词':
+      templates = adjectiveTemplates;
+      break;
+    case 'noun':
+    case '名词':
+      templates = nounTemplates;
+      break;
+    case 'verb':
+    case 'v':
+    case '动词':
+      templates = verbTemplates;
+      break;
+    default:
+      // 默认：根据单词形式猜测词性
+      if (cleanWord.endsWith('ly')) {
+        templates = adjectiveTemplates;
+      } else {
+        // 无法确定词性时，优先使用通用模板
+        templates = universalTemplates;
+      }
+  }
 
   // 基于单词哈希选择模板组
   const hash = cleanWord.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const templateIndex = hash % sentenceTemplates.length;
+  const templateIndex = hash % templates.length;
 
-  // 生成例句：将 word 嵌入模板
-  const rawExamples = sentenceTemplates[templateIndex](cleanWord);
+  // 生成例句：将 word 和 translation 嵌入模板
+  const rawExamples = templates[templateIndex](cleanWord, displayTranslation);
 
   // 标准化并返回
   const examples = rawExamples.map((ex) => ({
@@ -134,7 +243,7 @@ export function generateExampleSentences(word: string): ExampleSentence[] {
     c: ex.c,
   }));
 
-  console.log(`[sentenceGenerator] 为 "${word}" 生成例句:`, JSON.stringify(examples));
+  console.log(`[sentenceGenerator] 为 "${word}" (${pos || 'unknown'}, ${translation}) 生成例句:`, JSON.stringify(examples));
 
   return examples;
 }

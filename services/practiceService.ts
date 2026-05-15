@@ -5,10 +5,10 @@
  *   Stage 'word'    → 练习单词本身
  *   Stage 'sentence' → 练习唯一例句
  *
- * 评分策略（鼓励型）：
- *   - 单词：final_score = 60 + (raw_score * 0.4)，只要引擎能识别（raw_score > 0），起步即 60 分
- *   - 例句：基于 ISE 逐词完成率计算，完成率 >= 60% 则 base=60 + 平均分奖励
- *   - 完全无法识别（raw_score === 0）：保持低分，提示重试
+ * 评分策略（真实反馈型）：
+ *   - 单词：基于 Levenshtein Distance 计算字符串相似度，从 0 起算
+ *   - 例句：基于单词匹配率计算，准确率 60% 对应 60 分
+ *   - 完全无法识别：保持低分，不强制重试
  *
  * 数据库同步：
  *   - wordScore  → masteryScore（单词掌握度）
@@ -25,8 +25,8 @@ import { getVocabulary, updateMastery, updateSentenceMastery, VocabEntry } from 
 export interface CardScore {
   id: string;
   word: string;
-  wordScore: number;      // 单词阶段得分（鼓励型映射后）
-  sentenceScore: number;  // 例句阶段得分（鼓励型映射后）
+  wordScore: number;      // 单词阶段得分（真实反馈型）
+  sentenceScore: number;  // 例句阶段得分（真实反馈型）
 }
 
 export interface PracticeSession {
@@ -90,99 +90,15 @@ export function consumePendingSession(): PracticeSession | null {
 }
 
 /**
- * 初始化一次练习会话
- * 随机抽取 5-10 个单词，优先低分词
+ * Fisher-Yates 洗牌算法（无偏随机）
  */
-export async function startPractice(): Promise<PracticeSession> {
-  const all = await getVocabulary();
-
-  if (all.length === 0) {
-    return { words: [], currentIndex: 0, scores: [], completed: true };
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-
-  const count = Math.min(Math.max(all.length, 5), 10);
-  const shuffled = [...all].sort(() => Math.random() - 0.5);
-
-  const needPractice = shuffled.filter(
-    (w) => (w as any).masteryScore !== undefined && (w as any).masteryScore < 80
-  );
-  const rest = shuffled.filter((w) => !needPractice.includes(w));
-  const selected = [...needPractice, ...rest].slice(0, count);
-
-  return {
-    words: selected,
-    currentIndex: 0,
-    scores: [],
-    completed: false,
-  };
-}
-
-/**
- * fetchNextPracticeSet — 智能抽取下一组练习单词
- *
- * 筛选逻辑（优先级逐级下降）：
- *   1. 选取 masteryScore 为 undefined 的单词（从未进行过口语评测）
- *   2. 如果所有单词都已评测过，按 masteryScore 从低到高排序
- *   3. 最多抽取 10 个单词
- *
- * 状态重置：
- *   - 返回的 PracticeSession.currentIndex 固定为 0
- *   - scores 为空数组 []
- *   - 页面应据此重置为第一个单词的'待录音'状态
- *
- * @returns 新的 PracticeSession（currentIndex=0, scores=[]）
- */
-export async function fetchNextPracticeSet(): Promise<PracticeSession> {
-  const all = await getVocabulary();
-
-  if (all.length === 0) {
-    return { words: [], currentIndex: 0, scores: [], completed: true };
-  }
-
-  // 步骤 1：分离"从未评测"和"已评测"的单词
-  const neverPracticed = all.filter(
-    (w) => w.masteryScore === undefined
-  );
-  const everPracticed = all.filter(
-    (w) => w.masteryScore !== undefined
-  );
-
-  // 步骤 2：按优先级选取
-  if (neverPracticed.length > 0) {
-    // 优先选取从未评测的单词（最多 10 个，随机打乱顺序以增加变化性）
-    const shuffled = [...neverPracticed].sort(() => Math.random() - 0.5);
-    const selected = shuffled.slice(0, 10);
-
-    console.log(
-      `[practiceService] fetchNextPracticeSet — 选取 ${selected.length}/${neverPracticed.length} 个未评测单词`,
-      selected.map((w) => `${w.word}(masteryScore=undefined)`).join(', ')
-    );
-
-    return {
-      words: selected,
-      currentIndex: 0,
-      scores: [],
-      completed: false,
-    };
-  }
-
-  // 步骤 3：所有单词都已评测过 → 按 masteryScore 从低到高排序，取最低的 10 个
-  const sortedByLowScore = [...everPracticed].sort(
-    (a, b) => (a.masteryScore ?? 100) - (b.masteryScore ?? 100)
-  );
-  const selected = sortedByLowScore.slice(0, 10);
-
-  console.log(
-    `[practiceService] fetchNextPracticeSet — 从 ${everPracticed.length} 个已评测单词中选取分数最低的 ${selected.length} 个`,
-    selected.map((w) => `${w.word}(${w.masteryScore})`).join(', ')
-  );
-
-  return {
-    words: selected,
-    currentIndex: 0,
-    scores: [],
-    completed: false,
-  };
+  return shuffled;
 }
 
 /**
@@ -226,109 +142,168 @@ export function getCurrentSentence(session: PracticeSession): string {
   return '';
 }
 
-/**
- * 评估语音
- * 真实流程：
- *   1. 静音检测（文件大小 < 2KB）
- *   2. 讯飞 WebSocket API 转写
- *   3. 莱文斯坦编辑距离比对 → 0-100 分
- *
- * @param audioUri 录音文件 URI
- * @param targetText 目标文本（单词或例句）
- * @returns 0-100 得分
- */
-/**
- * 鼓励型单词评分映射
- *
- * 核心原则：只要引擎能识别出单词（raw_score > 0），起步即 60 分（及格）。
- * 公式：final_score = 60 + (raw_score * 0.4)
- *
- * - raw_score 范围 0-100，映射后范围 60-100
- * - raw_score = 0（完全无法识别）：返回 0，表示需要重试
- */
-export function calculateEncouragingWordScore(rawScore: number): number {
-  if (rawScore <= 0) return 0;
-  // raw_score 0-100 → final 60-100
-  const finalScore = 60 + (rawScore * 0.4);
-  return Math.round(Math.min(100, Math.max(0, finalScore)));
-}
+// ====== 真实评分算法 ======
 
 /**
- * 鼓励型例句评分（基于 ISE 逐词完成率）
- *
- * 从 ISE 返回的 word-level detail 中提取逐词分数，计算：
- *   1. 完成率（completion_rate）= 正确识别的单词数 / 总单词数
- *   2. 平均分（avgAccuracy）= 已识别单词的平均分
- *
- * 评分规则：
- *   - completion_rate >= 60%：base = 60，再加 avgAccuracy * 0.35 奖励分
- *   - completion_rate < 60%：线性比例分 = completion_rate * 100（最高 59 分）
- *   - 完全无逐词数据：回退到 raw_score 直接映射
- *
- * @param rawScore ISE 返回的原始总分
- * @param words ISE 返回的逐词详情数组（可选）
- * @param targetText 目标文本（用于计算总词数）
+ * Levenshtein Distance（编辑距离）算法
+ * 计算两个字符串之间的最小编辑操作次数
  */
-export function calculateEncouragingSentenceScore(
-  rawScore: number,
-  words?: Array<{ text: string; score: number }>,
-  targetText?: string
-): number {
-  // 如果有逐词数据，基于完成率计算
-  if (words && words.length > 0 && targetText) {
-    const targetWords = targetText
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(w => w.length > 0);
-    const totalWordCount = targetWords.length;
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
 
-    if (totalWordCount === 0) {
-      // 没有目标词，回退到原始分数映射
-      return calculateEncouragingWordScore(rawScore);
-    }
-
-    // 统计正确识别的单词（score > 0 表示引擎能识别）
-    const recognizedWords = words.filter(w => w.score > 0);
-    const completionRate = recognizedWords.length / totalWordCount;
-
-    // 计算已识别单词的平均准确度
-    const avgAccuracy =
-      recognizedWords.length > 0
-        ? recognizedWords.reduce((sum, w) => sum + w.score, 0) / recognizedWords.length
-        : 0;
-
-    let finalScore: number;
-
-    if (completionRate >= 0.6) {
-      // 完成率 >= 60%：起步 60 分 + 平均准确度奖励
-      finalScore = 60 + avgAccuracy * 0.35;
-    } else {
-      // 完成率 < 60%：线性比例分
-      finalScore = completionRate * 100;
-    }
-
-    console.log(
-      `[practiceService] 📊 例句鼓励评分: raw=${rawScore}, ` +
-      `totalWords=${totalWordCount}, recognized=${recognizedWords.length}, ` +
-      `completionRate=${(completionRate * 100).toFixed(0)}%, ` +
-      `avgAccuracy=${avgAccuracy.toFixed(1)}, final=${Math.round(finalScore)}`
-    );
-
-    return Math.round(Math.min(100, Math.max(0, finalScore)));
+  // 初始化矩阵
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
   }
 
-  // 无逐词数据（如 IAT fallback），回退到单词映射
-  return calculateEncouragingWordScore(rawScore);
+  // 填充矩阵
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      const cost = a[j - 1] === b[i - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,     // 删除
+        matrix[i][j - 1] + 1,     // 插入
+        matrix[i - 1][j - 1] + cost // 替换
+      );
+    }
+  }
+
+  return matrix[b.length][a.length];
 }
 
 /**
- * 语音评测入口（鼓励型评分）
+ * 计算字符串相似度（基于 Levenshtein Distance）
+ * @returns 0-100 的相似度分数
+ */
+function calculateStringSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  
+  // 预处理：转小写、移除首尾空格、移除标点
+  const cleanA = a.toLowerCase().trim().replace(/[^\w\s]/g, '');
+  const cleanB = b.toLowerCase().trim().replace(/[^\w\s]/g, '');
+  
+  if (!cleanA || !cleanB) return 0;
+  
+  const maxLen = Math.max(cleanA.length, cleanB.length);
+  const distance = levenshteinDistance(cleanA, cleanB);
+  
+  // 计算相似度分数
+  const similarity = ((maxLen - distance) / maxLen) * 100;
+  
+  return Math.round(similarity);
+}
+
+/**
+ * 真实反馈型单词评分
+ * 
+ * 基于 Levenshtein Distance 计算识别结果与目标单词的相似度
+ * 从 0 分起算，真实反映发音质量
+ * 
+ * @param transcribedText AI 识别出的文本
+ * @param targetText 目标单词
+ * @param rawScore ISE 原始分数（作为参考）
+ * @returns 0-100 得分
+ */
+export function calculateRealWordScore(
+  transcribedText: string,
+  targetText: string,
+  rawScore: number
+): number {
+  if (!transcribedText || !targetText) return 0;
+  
+  // 使用字符串相似度作为主要评分依据
+  const similarity = calculateStringSimilarity(transcribedText, targetText);
+  
+  // 将 ISE 原始分数与字符串相似度结合
+  // ISE 分数反映发音准确度，字符串相似度反映单词识别正确性
+  const finalScore = Math.round((similarity * 0.7 + rawScore * 0.3));
+  
+  return Math.min(100, Math.max(0, finalScore));
+}
+
+/**
+ * 真实反馈型例句评分
+ * 
+ * 基于单词匹配率计算得分，准确率 60% 对应 60 分
+ * 
+ * @param transcribedText AI 识别出的文本
+ * @param targetText 目标例句
+ * @param rawScore ISE 原始分数（作为参考）
+ * @param words ISE 返回的逐词详情（可选）
+ * @returns 0-100 得分
+ */
+export function calculateRealSentenceScore(
+  transcribedText: string,
+  targetText: string,
+  rawScore: number,
+  words?: Array<{ text: string; score: number }>
+): number {
+  if (!transcribedText || !targetText) return 0;
+  
+  // 提取目标单词列表
+  const targetWords = targetText
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 0);
+  
+  if (targetWords.length === 0) {
+    return Math.round(rawScore);
+  }
+  
+  // 使用逐词数据计算匹配率（如果有）
+  let matchRate: number;
+  
+  if (words && words.length > 0) {
+    // 使用 ISE 返回的逐词数据
+    const recognizedWords = words.filter(w => w.score > 0).map(w => w.text.toLowerCase());
+    const matchedCount = recognizedWords.filter(rw => targetWords.includes(rw)).length;
+    matchRate = matchedCount / targetWords.length;
+  } else {
+    // 回退到字符串匹配
+    const cleanTranscribed = transcribedText.toLowerCase().replace(/[^\w\s]/g, '');
+    const transcribedWords = cleanTranscribed.split(/\s+/).filter(w => w.length > 0);
+    const matchedCount = transcribedWords.filter(tw => targetWords.includes(tw)).length;
+    matchRate = matchedCount / targetWords.length;
+  }
+  
+  // 计算得分：基于匹配率的非线性映射
+  // 准确率 60% 对应 60 分，低于 40% 得分在 40 以下
+  let finalScore: number;
+  
+  if (matchRate < 0.4) {
+    // 低于 40% 准确率：线性映射，最高 40 分
+    finalScore = matchRate * 100;
+  } else if (matchRate < 0.6) {
+    // 40%-60% 准确率：提升曲线，从 40 到 60
+    finalScore = 40 + (matchRate - 0.4) * 100;
+  } else {
+    // 60%+ 准确率：鼓励型提升，60 到 100
+    finalScore = 60 + (matchRate - 0.6) * 100;
+  }
+  
+  // 结合 ISE 原始分数作为微调
+  finalScore = Math.round((finalScore * 0.8 + rawScore * 0.2));
+  
+  console.log(
+    `[practiceService] 📊 例句真实评分: matchRate=${(matchRate * 100).toFixed(0)}%, ` +
+    `raw=${rawScore}, final=${Math.round(finalScore)}`
+  );
+  
+  return Math.min(100, Math.max(0, finalScore));
+}
+
+/**
+ * 语音评测入口（真实反馈型评分）
  *
- * 调用 ISE API 获取原始分数和逐词详情，然后根据阶段应用鼓励型映射：
- *   - word 阶段：calculateEncouragingWordScore()
- *   - sentence 阶段：calculateEncouragingSentenceScore()
+ * 调用 ISE API 获取识别结果，然后根据阶段应用真实评分：
+ *   - word 阶段：calculateRealWordScore()
+ *   - sentence 阶段：calculateRealSentenceScore()
  *
- * @returns { score: number; detail?: { rawScore: number; words?: Array<{ text: string; score: number }> } }
+ * @returns { score: number; detail?: { rawScore: number; transcribedText: string; words?: Array<{ text: string; score: number }> } }
  */
 export async function evaluateSpeech(
   audioUri: string,
@@ -338,6 +313,7 @@ export async function evaluateSpeech(
   score: number;
   detail?: {
     rawScore: number;
+    transcribedText: string;
     words?: Array<{ text: string; score: number }>;
   };
 }> {
@@ -345,6 +321,7 @@ export async function evaluateSpeech(
   const result = await evaluateWithISE(audioUri, targetText);
 
   const rawScore = result.score;
+  const transcribedText = result.recognized || '';
   const words = result.detail?.words?.map(w => ({
     text: w.text,
     score: w.score,
@@ -352,28 +329,29 @@ export async function evaluateSpeech(
 
   // 调试日志
   console.log(`[practiceService] [Target]: ${result.target}`);
-  console.log(`[practiceService] [Recognized]: ${result.recognized || '(空/无声音)'}`);
+  console.log(`[practiceService] [Recognized]: ${transcribedText || '(空/无声音)'}`);
   console.log(`[practiceService] [Raw Score]: ${rawScore}`);
   console.log(`[practiceService] [IsSilent]: ${result.isSilent}`);
   if (words) {
     console.log(`[practiceService] [Word Details]: ${JSON.stringify(words)}`);
   }
 
-  // 根据阶段应用鼓励型映射
+  // 根据阶段应用真实评分
   let finalScore: number;
   if (stage === 'sentence') {
-    finalScore = calculateEncouragingSentenceScore(rawScore, words, targetText);
+    finalScore = calculateRealSentenceScore(transcribedText, targetText, rawScore, words);
   } else {
     // 默认按单词评分（也兼容无 stage 参数的情况）
-    finalScore = calculateEncouragingWordScore(rawScore);
+    finalScore = calculateRealWordScore(transcribedText, targetText, rawScore);
   }
 
-  console.log(`[practiceService] 🎯 鼓励评分结果: raw=${rawScore}, final=${finalScore}, stage=${stage || 'word'}`);
+  console.log(`[practiceService] 🎯 真实评分结果: raw=${rawScore}, final=${finalScore}, stage=${stage || 'word'}`);
 
   return {
     score: finalScore,
     detail: {
       rawScore,
+      transcribedText,
       words,
     },
   };
@@ -395,8 +373,6 @@ export async function checkAudioSilence(audioUri: string): Promise<{
       return { isSilent: true, reason: '录音文件不存在' };
     }
     const size = info.size ?? 0;
-    // ★ 降低静音判定阈值：从 2048 降到 512 bytes
-    // 因为 AMR 编码的文件即使有声音也可能较小
     if (size < 512) {
       return { isSilent: true, reason: '没听到声音，请大声读出来' };
     }
@@ -412,7 +388,7 @@ export async function checkAudioSilence(audioUri: string): Promise<{
  * 流程：
  *   1. 第一次识别结果为空 → 检查音频文件是否存在且有效
  *   2. 如果文件有效 → 自动重试第二次识别
- *   3. 如果第二次仍为空 → 返回温和提示
+ *   3. 如果第二次仍为空 → 返回 0 分（真实反馈）
  *
  * @param audioUri 录音文件 URI
  * @param targetText 目标文本
@@ -428,12 +404,13 @@ export async function evaluateSpeechWithRetry(
   score: number;
   detail?: {
     rawScore: number;
+    transcribedText: string;
     words?: Array<{ text: string; score: number }>;
   };
   retried: boolean;
   isEmpty: boolean;
 }> {
-  let lastResult: { score: number; detail?: { rawScore: number; words?: Array<{ text: string; score: number }> } } | null = null;
+  let lastResult: { score: number; detail?: { rawScore: number; transcribedText: string; words?: Array<{ text: string; score: number }> } } | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     console.log(`[practiceService] 🔄 评测尝试 ${attempt + 1}/${maxRetries + 1} (audioUri=${audioUri})`);
@@ -442,11 +419,12 @@ export async function evaluateSpeechWithRetry(
       const result = await evaluateSpeech(audioUri, targetText, stage);
       lastResult = result;
 
-      // 检查结果是否有效（score > 0 或 有逐词数据）
-      const hasValidScore = result.score > 0;
+      // 检查结果是否有效（有识别文本或有逐词数据）
+      const hasTranscribedText = result.detail?.transcribedText && result.detail.transcribedText.length > 0;
       const hasWords = result.detail?.words && result.detail.words.length > 0;
+      const hasValidScore = result.score > 0;
 
-      if (hasValidScore || hasWords) {
+      if (hasTranscribedText || hasWords || hasValidScore) {
         console.log(`[practiceService] ✅ 第 ${attempt + 1} 次评测成功: score=${result.score}`);
         return {
           ...result,
@@ -475,11 +453,11 @@ export async function evaluateSpeechWithRetry(
     }
   }
 
-  // 所有重试都失败
+  // 所有重试都失败，返回 0 分（真实反馈）
   console.warn(`[practiceService] ⚠️ 所有 ${maxRetries + 1} 次评测均返回空结果`);
   return {
     score: 0,
-    detail: lastResult?.detail || { rawScore: 0 },
+    detail: lastResult?.detail || { rawScore: 0, transcribedText: '' },
     retried: true,
     isEmpty: true,
   };
@@ -521,7 +499,7 @@ export async function recordStageScore(
     idx = newScores.length - 1;
   }
 
-  // 记录得分（无论分数多少，均正常通过）
+  // 记录得分（无论分数多少，均正常通过，不强制重试）
   if (stage === 'word') {
     newScores[idx] = { ...newScores[idx], wordScore: score };
 
@@ -558,41 +536,41 @@ export async function recordStageScore(
 }
 
 /**
- * 生成评测评语（适配鼓励型评分 60-100 范围）
+ * 生成评测评语（中文多级反馈）
  *
- * 鼓励型评分下分数普遍偏高，调整阈值：
- *   >= 95: Perfect（几乎完美）
- *   >= 85: Excellent（优秀）
- *   >= 75: Good（良好，基本正确）
- *   >= 60: Fair（及格，部分需加强）
- *   < 60:  Keep Trying（需要重试）
+ * 5 个等级，覆盖 0-100 分：
+ *   >= 90: 🌟 完美 — 发音非常标准
+ *   >= 75: 👍 优秀 — 发音很好，继续保持
+ *   >= 60: 💪 不错 — 基本正确，注意个别发音
+ *   >= 40: 🔄 加油 — 需要多练习，试着放慢语速
+ *   < 40:  🎯 再试一次 — 没听清楚，请大声清晰地读出来
  */
 export function getScoreFeedback(score: number): {
   level: string;
   feedback: string;
   color: string;
 } {
-  if (score >= 95) {
-    return { level: 'Perfect 🎯', feedback: '发音非常标准！', color: '#34C759' };
-  }
-  if (score >= 85) {
-    return { level: 'Excellent ⭐', feedback: '很不错，继续加油！', color: '#4A90D9' };
+  if (score >= 90) {
+    return { level: '完美 🌟', feedback: '发音非常标准！', color: '#2ECC71' };
   }
   if (score >= 75) {
-    return { level: 'Good 👍', feedback: '发音基本正确，注意元音饱满度', color: '#FF9500' };
+    return { level: '优秀 👍', feedback: '发音很好，继续保持！', color: '#27AE60' };
   }
   if (score >= 60) {
-    return { level: 'Fair 🤔', feedback: '部分发音需要加强，多听原声', color: '#FF6B6B' };
+    return { level: '不错 💪', feedback: '基本正确，注意个别发音', color: '#F39C12' };
+  }
+  if (score >= 40) {
+    return { level: '加油 🔄', feedback: '发音还需打磨，需要多练习', color: '#E67E22' };
   }
   return {
-    level: 'Keep Trying 💪',
-    feedback: '建议跟读原声反复练习',
-    color: '#FF3B30',
+    level: '继续努力 💪',
+    feedback: '发音尚不清晰，继续保持练习',
+    color: '#E74C3C',
   };
 }
 
 /**
- * 检查是否全对（鼓励型评分下，所有单词和例句 >= 85 视为完美）
+ * 检查是否全对（真实评分下，所有单词和例句 >= 85 视为完美）
  */
 export function isAllPerfect(scores: CardScore[]): boolean {
   if (scores.length === 0) return false;
@@ -637,4 +615,89 @@ export function fillSkippedScores(session: PracticeSession): CardScore[] {
   }
 
   return filled;
+}
+
+/**
+ * 初始化一次练习会话
+ * 随机抽取 5-10 个单词，优先低分词
+ */
+export async function startPractice(): Promise<PracticeSession> {
+  const all = await getVocabulary();
+
+  if (all.length === 0) {
+    return { words: [], currentIndex: 0, scores: [], completed: true };
+  }
+
+  const count = Math.min(Math.max(all.length, 5), 10);
+  const shuffled = [...all].sort(() => Math.random() - 0.5);
+
+  const needPractice = shuffled.filter(
+    (w) => (w as any).masteryScore !== undefined && (w as any).masteryScore < 80
+  );
+  const rest = shuffled.filter((w) => !needPractice.includes(w));
+  const selected = [...needPractice, ...rest].slice(0, count);
+
+  return {
+    words: selected,
+    currentIndex: 0,
+    scores: [],
+    completed: false,
+  };
+}
+
+/**
+ * fetchNextPracticeSet — 智能抽取下一组练习单词
+ */
+export async function fetchNextPracticeSet(): Promise<PracticeSession> {
+  const all = await getVocabulary();
+  console.log('[practiceService] fetchNextPracticeSet -- getVocabulary returned ' + all.length + ' words');
+
+  if (all.length === 0) {
+    console.log('[practiceService] fetchNextPracticeSet -- no words, returning empty session');
+    return { words: [], currentIndex: 0, scores: [], completed: true };
+  }
+
+  // 步骤 1：分离"从未评测"和"已评测"的单词
+  const neverPracticed = all.filter(
+    (w) => w.masteryScore === undefined
+  );
+  const everPracticed = all.filter(
+    (w) => w.masteryScore !== undefined
+  );
+
+  // 步骤 2：按优先级选取
+  if (neverPracticed.length > 0) {
+    const shuffled = shuffleArray(neverPracticed);
+    const selected = shuffled.slice(0, 10);
+
+    console.log(
+      `[practiceService] fetchNextPracticeSet — 选取 ${selected.length}/${neverPracticed.length} 个未评测单词`,
+      selected.map((w) => `${w.word}(masteryScore=undefined)`).join(', ')
+    );
+
+    return {
+      words: selected,
+      currentIndex: 0,
+      scores: [],
+      completed: false,
+    };
+  }
+
+  // 步骤 3：所有单词都已评测过 → 按 masteryScore 从低到高排序，取最低的 10 个
+  const sortedByLowScore = [...everPracticed].sort(
+    (a, b) => (a.masteryScore ?? 100) - (b.masteryScore ?? 100)
+  );
+  const selected = sortedByLowScore.slice(0, 10);
+
+  console.log(
+    `[practiceService] fetchNextPracticeSet — 从 ${everPracticed.length} 个已评测单词中选取分数最低的 ${selected.length} 个`,
+    selected.map((w) => `${w.word}(${w.masteryScore})`).join(', ')
+  );
+
+  return {
+    words: selected,
+    currentIndex: 0,
+    scores: [],
+    completed: false,
+  };
 }

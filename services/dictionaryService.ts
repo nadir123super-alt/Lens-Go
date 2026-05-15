@@ -5,6 +5,11 @@
  *   1. app 启动时用 downloadAsync 下载 assets/dictionary.db 到文档目录
  *   2. 使用 expo-sqlite 打开文档目录中的数据库
  *   3. 所有查询走 SQLite（毫秒级）
+ *
+ * 搜索逻辑（v2）：
+ *   - 支持英文原词和中文含义双向模糊查询
+ *   - 多字段匹配：同时检索 word（英文）和 translation（中文翻译）字段
+ *   - 优先级排序：英文完全匹配 > 英文前缀匹配 > 中文包含匹配 > 英文模糊匹配
  */
 import { copyAsync, documentDirectory, downloadAsync, getInfoAsync } from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
@@ -94,21 +99,76 @@ export async function initDictionary(): Promise<void> {
   return _dbInitPromise;
 }
 
-// ── 模糊搜索（SQLite LIKE 前缀匹配） ──
-export async function fuzzySearch(prefix: string, topK = 10): Promise<DictResult[]> {
-  const key = prefix.trim().toLowerCase();
+/**
+ * 判断字符串是否包含中文字符
+ */
+function isChineseQuery(text: string): boolean {
+  return /[\u4e00-\u9fff]/.test(text);
+}
+
+/**
+ * 英汉双向模糊搜索（SQLite）
+ *
+ * 搜索策略：
+ *   1. 英文完全匹配 → 排第一
+ *   2. 英文前缀匹配（word LIKE 'key%'）
+ *   3. 中文包含匹配（translation LIKE '%key%'）
+ *   4. 英文包含匹配（word LIKE '%key%'）
+ *
+ * @param query  - 搜索关键词（英文或中文）
+ * @param topK   - 最大返回条数
+ */
+export async function fuzzySearch(query: string, topK = 20): Promise<DictResult[]> {
+  const key = query.trim().toLowerCase();
   if (!key) return [];
 
   try {
     await initDictionary();
     if (!_db) return [];
 
+    const isChinese = isChineseQuery(key);
+
+    let sql: string;
+    let params: string[];
+
+    if (isChinese) {
+      // 中文搜索：只匹配 translation 字段
+      sql = `
+        SELECT word, phonetic, definition, translation
+        FROM words
+        WHERE translation LIKE ?
+        ORDER BY
+          CASE
+            WHEN translation = ? THEN 0
+            WHEN translation LIKE ? THEN 1
+            ELSE 2
+          END,
+          LENGTH(word) ASC
+        LIMIT ?
+      `;
+      params = [`%${key}%`, key, `${key}%`, String(topK)];
+    } else {
+      // 英文搜索：匹配 word 和 translation 字段，优先级排序
+      sql = `
+        SELECT word, phonetic, definition, translation
+        FROM words
+        WHERE word LIKE ? OR translation LIKE ?
+        ORDER BY
+          CASE
+            WHEN word = ? THEN 0
+            WHEN word LIKE ? THEN 1
+            WHEN translation LIKE ? THEN 2
+            ELSE 3
+          END,
+          LENGTH(word) ASC
+        LIMIT ?
+      `;
+      params = [`%${key}%`, `%${key}%`, key, `${key}%`, `%${key}%`, String(topK)];
+    }
+
     const rows = await _db.getAllAsync<{
       word: string; phonetic: string; definition: string; translation: string;
-    }>(
-      'SELECT word, phonetic, definition, translation FROM words WHERE word LIKE ? ORDER BY word LIMIT ?',
-      [`${key}%`, topK]
-    );
+    }>(sql, params);
 
     return rows.map(row => ({
       word: row.word,

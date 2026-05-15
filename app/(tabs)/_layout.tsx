@@ -11,21 +11,29 @@
  * 设计规范：
  *   - 无文字：tabBarShowLabel = false
  *   - 图标大小：默认 28px，选中放大至 30px
- *   - 选中颜色：#FF4D4F，且有 translateY -3 上浮效果
+ *   - 选中颜色：马卡龙红色，且有 translateY -3 上浮效果
  *   - 高度：70px
  *   - 纯白背景 #FFFFFF，清晰的顶部边界线
  *   - 非绝对定位：页面内容不被导航栏遮挡
+ *
+ * 缓存预加载：
+ *   用户点击"生词本"或"口语练习"Tab 时，立即触发网络请求预加载，
+ *   页面组件挂载后直接消费缓存数据，无需等待请求。
  */
+import CameraIcon from '@/components/CameraIcon';
+import { HapticTab } from '@/components/haptic-tab';
+import HomeIcon from '@/components/HomeIcon';
+import PracticeIcon from '@/components/PracticeIcon';
+import SearchIcon from '@/components/SearchIcon';
+import VocabularyIcon from '@/components/VocabularyIcon';
+import { preloadPractice, preloadVocabulary } from '@/services/dataPreloader';
 import { Feather } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HapticTab } from '@/components/haptic-tab';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-const ACTIVE_COLOR = '#FF4D4F';
+const ACTIVE_COLOR = '#FF6B6B';
 const TABBAR_HEIGHT = Platform.OS === 'ios' ? 70 : 66;
 
 /* ─── Tab 图标 ─── */
@@ -45,14 +53,38 @@ function TabIcon({
   );
 }
 
+/**
+ * 带预加载功能的 Tab 按钮
+ * 在 HapticTab 的基础上，点击时触发 preload 回调
+ */
+function PreloadTabButton({
+  children,
+  onPress,
+  onPreload,
+  ...rest
+}: any) {
+  const handlePress = useCallback(
+    (event: any) => {
+      onPreload?.();
+      onPress?.(event);
+    },
+    [onPreload, onPress]
+  );
+
+  return (
+    <HapticTab onPress={handlePress} {...rest}>
+      {children}
+    </HapticTab>
+  );
+}
+
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
 
-  const inactiveColor = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)';
-  const bgColor = isDark ? '#1a1a1a' : '#FFFFFF';
-  const borderColor = isDark ? '#333' : '#e8e8e8';
+  // 固定黑色背景，不受系统深色/浅色模式影响
+  const inactiveColor = 'rgba(255,255,255,0.4)';
+  const bgColor = '#1a1a1a';
+  const borderColor = '#333';
 
   return (
     <Tabs
@@ -79,7 +111,7 @@ export default function TabLayout() {
         options={{
           title: '首页',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon iconName="home" color={color} focused={focused} />
+            <HomeIcon color={color} size={focused ? 34 : 32} focused={focused} />
           ),
         }}
       />
@@ -89,7 +121,7 @@ export default function TabLayout() {
         name="camera"
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon iconName="camera" color={color} focused={focused} />
+            <CameraIcon color={color} size={focused ? 30 : 28} focused={focused} />
           ),
         }}
       />
@@ -99,7 +131,10 @@ export default function TabLayout() {
         name="practice"
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon iconName="mic" color={color} focused={focused} />
+            <PracticeIcon color={color} size={focused ? 30 : 28} focused={focused} />
+          ),
+          tabBarButton: (props) => (
+            <PreloadTabButton {...props} onPreload={preloadPractice} />
           ),
         }}
       />
@@ -109,7 +144,7 @@ export default function TabLayout() {
         name="search"
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon iconName="search" color={color} focused={focused} />
+            <SearchIcon color={color} size={focused ? 30 : 28} focused={focused} />
           ),
         }}
       />
@@ -119,7 +154,10 @@ export default function TabLayout() {
         name="vocabulary"
         options={{
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon iconName="book-open" color={color} focused={focused} />
+            <VocabularyIcon color={color} size={focused ? 30 : 28} focused={focused} />
+          ),
+          tabBarButton: (props) => (
+            <PreloadTabButton {...props} onPreload={preloadVocabulary} />
           ),
         }}
       />
@@ -150,9 +188,6 @@ export default function TabLayout() {
       <Tabs.Screen
         name="evaluation-summary"
         options={{
-          // ★ 关键：通过 href: null 禁用路由导航 + tabBarItemStyle 隐藏 Tab
-          //   防止 Expo Router 因文件系统发现 (evaluation-summary.tsx 在 (tabs) 目录下)
-          //   自动为其创建第 6 个 Tab
           href: null,
           tabBarItemStyle: { display: 'none' },
         }}

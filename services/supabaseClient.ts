@@ -3,6 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
+// 调试：检查连接地址（打印前 8 位用于核对环境）
+const url = process.env.EXPO_PUBLIC_SUPABASE_URL || '(空)';
+console.log('检查连接地址:', url);
+console.log('Supabase URL 前 8 位:', url.substring(0, 8) + '...');
+console.log('Anon Key 是否存在:', !!process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
+console.log('Anon Key 前 8 位:', (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').substring(0, 8) + '...');
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /**

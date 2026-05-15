@@ -55,9 +55,9 @@ export default function StarButton({
     ]).start();
 
     try {
-      const newFav = await toggleFavorite(word, translation, phrases, source, usage, imagePath);
-      setIsFav(newFav);
-      onToggle?.(newFav);
+      const result = await toggleFavorite(word, translation, phrases, source, usage, imagePath);
+      setIsFav(result.favorited);
+      onToggle?.(result.favorited);
     } catch {}
   }, [word, translation, phrases, source, usage, imagePath, scaleAnim, onToggle]);
 

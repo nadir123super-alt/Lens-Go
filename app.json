@@ -1,13 +1,12 @@
 {
   "expo": {
-    "name": "MyAIEnglishApp",
-    "slug": "MyAIEnglishApp",
+    "name": "LensGo",
+    "slug": "lensgo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myaienglishapp",
+    "scheme": "lensgo",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -21,14 +20,13 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.RECEIVE_BOOT_COMPLETED"
       ],
-      "package": "com.anonymous.MyAIEnglishApp"
+      "package": "com.anonymous.LensGo"
     },
     "web": {
       "output": "static",

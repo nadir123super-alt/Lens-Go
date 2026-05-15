@@ -28,12 +28,12 @@ import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -58,23 +58,23 @@ const TOAST_DURATION = 2000;
 
 // ====== 词性标签配置 ======
 const POS_TAGS: Record<string, { label: string; color: string; bg: string }> = {
-  'n':     { label: '名词',       color: '#4A9EFF', bg: 'rgba(74,158,255,0.15)' },
-  'v':     { label: '动词',       color: '#FF6B9D', bg: 'rgba(255,107,157,0.15)' },
-  'vi':    { label: '不及物动词', color: '#FF6B9D', bg: 'rgba(255,107,157,0.15)' },
-  'vt':    { label: '及物动词',   color: '#FF6B9D', bg: 'rgba(255,107,157,0.15)' },
-  'aux':   { label: '助动词',     color: '#FF6B9D', bg: 'rgba(255,107,157,0.15)' },
-  'a':     { label: '形容词',     color: '#FFB84D', bg: 'rgba(255,184,77,0.15)' },
-  'adj':   { label: '形容词',     color: '#FFB84D', bg: 'rgba(255,184,77,0.15)' },
-  'ad':    { label: '形容词',     color: '#FFB84D', bg: 'rgba(255,184,77,0.15)' },
-  'adv':   { label: '副词',       color: '#A66CFF', bg: 'rgba(166,108,255,0.15)' },
-  'prep':  { label: '介词',       color: '#4DD9B6', bg: 'rgba(77,217,182,0.15)' },
-  'conj':  { label: '连词',       color: '#FF8C5A', bg: 'rgba(255,140,90,0.15)' },
-  'pron':  { label: '代词',       color: '#5AE0C0', bg: 'rgba(90,224,192,0.15)' },
-  'num':   { label: '数词',       color: '#FFD93D', bg: 'rgba(255,217,61,0.15)' },
-  'art':   { label: '冠词',       color: '#6BCB77', bg: 'rgba(107,203,119,0.15)' },
-  'int':   { label: '感叹词',     color: '#FF6B6B', bg: 'rgba(255,107,107,0.15)' },
-  'det':   { label: '限定词',     color: '#6BCB77', bg: 'rgba(107,203,119,0.15)' },
-  'modal': { label: '情态动词',   color: '#FF6B9D', bg: 'rgba(255,107,157,0.15)' },
+  'n':     { label: '名词',       color: '#3498DB',   bg: 'rgba(52,152,219,0.15)' },
+  'v':     { label: '动词',       color: '#E91E63',   bg: 'rgba(233,30,99,0.15)' },
+  'vi':    { label: '不及物动词', color: '#E91E63',   bg: 'rgba(233,30,99,0.15)' },
+  'vt':    { label: '及物动词',   color: '#E91E63',   bg: 'rgba(233,30,99,0.15)' },
+  'aux':   { label: '助动词',     color: '#E91E63',   bg: 'rgba(233,30,99,0.15)' },
+  'a':     { label: '形容词',     color: '#F39C12', bg: 'rgba(243,156,18,0.15)' },
+  'adj':   { label: '形容词',     color: '#F39C12', bg: 'rgba(243,156,18,0.15)' },
+  'ad':    { label: '形容词',     color: '#F39C12', bg: 'rgba(243,156,18,0.15)' },
+  'adv':   { label: '副词',       color: '#9B59B6',  bg: 'rgba(155,89,182,0.15)' },
+  'prep':  { label: '介词',       color: '#1ABC9C',   bg: 'rgba(26,188,156,0.15)' },
+  'conj':  { label: '连词',       color: '#E67E22',  bg: 'rgba(230,126,34,0.15)' },
+  'pron':  { label: '代词',       color: '#1ABC9C',   bg: 'rgba(26,188,156,0.15)' },
+  'num':   { label: '数词',       color: '#F1C40F', bg: 'rgba(241,196,15,0.15)' },
+  'art':   { label: '冠词',       color: '#2ECC71',  bg: 'rgba(46,204,113,0.15)' },
+  'int':   { label: '感叹词',     color: '#E74C3C',   bg: 'rgba(231,76,60,0.15)' },
+  'det':   { label: '限定词',     color: '#2ECC71',  bg: 'rgba(46,204,113,0.15)' },
+  'modal': { label: '情态动词',   color: '#E91E63',   bg: 'rgba(233,30,99,0.15)' },
 };
 
 // 词性缩写正则（匹配行首的 pos 标记）
@@ -220,9 +220,9 @@ const DashedWords = ({text, style}: {text: string; style?: any}) => {
               alignItems: 'center',
               justifyContent: 'center',
               minWidth: 20,
-              paddingBottom: hasBorder ? 2 : 0,
+              paddingBottom: hasBorder ? 0 : 0,
               marginRight: 10,
-              marginBottom: 12,
+              marginBottom: 8,
               ...(hasBorder && {
                 borderBottomWidth: 1.5,
                 borderStyle: 'solid',
@@ -312,7 +312,8 @@ export default function WordDetailScreen() {
 
   // "即点即停"
   const handleSpeak = useCallback((text: string) => {
-    playText(text);
+    // 传入 word 参数以追踪该单词的发音点击次数（用于"念念不忘"勋章）
+    playText(text, undefined, undefined, text);
   }, []);
 
   // 收藏切换
@@ -320,9 +321,13 @@ export default function WordDetailScreen() {
     if (favoriteLoading || !word) return;
     setFavoriteLoading(true);
     try {
-      const nowFavorited = await toggleFavorite(word, translation, [], 'search');
-      setIsFavorited(nowFavorited);
-      setToastMsg(nowFavorited ? '已收藏' : '已取消收藏');
+      const result = await toggleFavorite(word, translation, [], 'search');
+      if (result.message) {
+        setToastMsg(result.message);
+      } else {
+        setIsFavorited(result.favorited);
+        setToastMsg(result.favorited ? '已收藏' : '已取消收藏');
+      }
     } catch (err) {
       console.error('[WordDetail] 收藏失败:', err);
       setToastMsg('操作失败，请重试');
@@ -506,7 +511,7 @@ const styles = StyleSheet.create({
   toastText: { fontSize: 15, fontWeight: '600', color: '#fff' },
 
   // Core
-  coreSection: { paddingHorizontal: 20, paddingTop: 24 },
+  coreSection: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40 },
   // 单词行（单词 + 发音按钮水平排列）
   wordRow: {
     flexDirection: 'row',
@@ -527,12 +532,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   phoneticText: {
-    fontSize: 16, color: '#999', marginBottom: 20,
+    fontSize: 16, color: '#999', marginBottom: 24,
     fontFamily: 'monospace',
   },
   // 中文释义 - 按词性分段
   translationSection: {
-    marginBottom: 20,
+    marginBottom: 4,
   },
   translationRow: {
     flexDirection: 'row',
@@ -542,7 +547,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   translationText: {
-    fontSize: 20, fontWeight: '600', color: ANCHOR,
+    fontSize: 20, fontWeight: '600', color: '#FFFFFF',
     flexShrink: 1,
   },
   definitionBox: {
@@ -566,7 +571,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   posBadgeText: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
   },
   // 领域标签
@@ -583,12 +588,12 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
   },
   // Divider
-  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 24, marginVertical: 24 },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 24, marginVertical: 16 },
 
   // Examples section
   examplesSection: { paddingHorizontal: 24, marginBottom: 20 },
   sectionTitle: {
-    fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 16,
+    fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 12,
   },
   exampleCard: {
     backgroundColor: '#262626', borderRadius: 14,
@@ -610,8 +615,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center', justifyContent: 'center',
   },
-  exampleEn: { fontSize: 18, fontWeight: '600', color: '#FFFFFF', lineHeight: 26, paddingBottom: 8, textAlign: 'center' },
-  exampleCn: { fontSize: 15, color: '#BBBBBB', lineHeight: 22, paddingTop: 8, textAlign: 'center' },
+  exampleEn: { fontSize: 18, fontWeight: '600', color: '#FFFFFF', lineHeight: 26, paddingBottom: 4, textAlign: 'center' },
+  exampleCn: { fontSize: 15, color: '#BBBBBB', lineHeight: 22, paddingTop: 4, textAlign: 'center' },
   noExampleHint: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',

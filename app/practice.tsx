@@ -25,13 +25,11 @@
  *    - initSession 只挂载时执行一次，不重置状态
  */
 import AchievementUnlockModal from '@/components/AchievementUnlockModal';
-import { checkPracticeAchievements } from '@/services/achievementService';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   StyleSheet,
   Text,
@@ -40,6 +38,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { consumePreloadedPractice } from '@/services/dataPreloader';
 import { usePracticeContext } from '@/services/practiceContext';
 import {
   consumePendingSession,
@@ -65,8 +64,9 @@ import {
   stopRecordingWithVolume,
   VOLUME_THRESHOLD_DB
 } from '@/services/recordingService';
-import { playText, stopAll } from '@/services/soundManager';
+import { stopAll } from '@/services/soundManager';
 import { recordLearningActivity } from '@/services/studyStatsService';
+import { destroyTTS, initTTS, playTextWithCharProgress, stopTTS } from '@/services/ttsService';
 
 type Phase =
   | 'ready'
@@ -88,30 +88,8 @@ const ANCHOR = '#FF6B6B';
 const SENTENCE_TRANSITION_DELAY = 1800;
 
 /**
- * 估算单词的发音时长（毫秒）
- */
-function estimateWordDuration(word: string): number {
-  const vowels = 'aeiouAEIOU';
-  let vowelCount = 0;
-  let totalLength = word.length;
-  
-  for (let i = 0; i < word.length; i++) {
-    if (vowels.includes(word[i])) {
-      vowelCount++;
-    }
-  }
-  
-  // 基础时长 + 元音额外时长 + 长度额外时长
-  // 平均每个音节约 150ms，每个辅音约 50ms
-  const baseDuration = 100; // 基础时长
-  const vowelDuration = vowelCount * 120; // 每个元音约 120ms
-  const consonantDuration = (totalLength - vowelCount) * 50; // 每个辅音约 50ms
-  
-  return baseDuration + vowelDuration + consonantDuration;
-}
-
-/**
- * 播放文本并更新高亮进度
+ * 播放文本并更新高亮进度（KTV式字符级同步高亮）
+ * 使用 react-native-tts 的实时字符进度回调
  */
 function playWithHighlightHelper(
   text: string, 
@@ -133,55 +111,50 @@ function playWithHighlightHelper(
   setChar(0);
   
   if (isWordMode) {
-    // 单词模式：直接使用 playText 的字符进度回调
-    playText(
+    // 单词模式：直接使用 TTS 的字符进度回调，逐个字母点亮
+    playTextWithCharProgress(
       text,
       () => setProgress(text.length),
-      (progress) => setProgress(progress)
+      (charIndex) => setProgress(charIndex)
     );
   } else {
-    // 例句模式：使用 playText 的字符进度回调，然后手动计算单词和字母进度
+    // 例句模式：使用 TTS 的字符进度回调，追踪当前单词和字母位置
     const words = text.split(/\s+/).filter(w => w.length > 0);
     
-    // 计算每个单词的字符数（用于映射）
-    const charCounts: number[] = [];
-    let totalChars = 0;
-    words.forEach(word => {
-      charCounts.push(word.length + 1); // +1 用于空格
-      totalChars += word.length + 1;
+    // 预计算每个单词的起始字符位置（用于快速查找）
+    const wordStartPositions: number[] = [];
+    let position = 0;
+    words.forEach((word, index) => {
+      wordStartPositions.push(position);
+      position += word.length + 1; // +1 用于空格
     });
-    charCounts[charCounts.length - 1] -= 1; // 最后一个单词不需要空格
-    totalChars -= 1;
     
-    playText(
+    playTextWithCharProgress(
       text,
       () => {
+        // 播放完成
         setProgress(words.length);
         setChar(0);
       },
-      (charProgress) => {
-        // 根据字符进度计算当前单词和字母位置
-        let accumulated = 0;
-        let currentWordIndex = 0;
-        let currentCharIndex = 0;
-        
+      (charIndex) => {
+        // TTS 引擎实时回调：当前正在播放的字符索引
+        // 找到当前字符属于哪个单词
+        let currentWordIndex = words.length - 1;
         for (let i = 0; i < words.length; i++) {
-          if (charProgress <= accumulated + charCounts[i]) {
+          const nextStart = i < words.length - 1 ? wordStartPositions[i + 1] : text.length;
+          if (charIndex >= wordStartPositions[i] && charIndex < nextStart) {
             currentWordIndex = i;
-            currentCharIndex = charProgress - accumulated;
-            // 如果超过单词长度，说明是空格，属于下一个单词
-            if (currentCharIndex > words[i].length) {
-              currentWordIndex = Math.min(i + 1, words.length - 1);
-              currentCharIndex = 0;
-            }
             break;
           }
-          accumulated += charCounts[i];
         }
+        
+        // 计算当前单词内的字符位置
+        const charInWord = charIndex - wordStartPositions[currentWordIndex];
+        const wordLength = words[currentWordIndex]?.length || 0;
         
         // 更新状态
         setProgress(currentWordIndex);
-        setChar(Math.min(currentCharIndex, words[currentWordIndex]?.length || 0));
+        setChar(Math.min(charInWord, wordLength));
       }
     );
   }
@@ -197,7 +170,6 @@ export default function PracticeScreen() {
   const [currentTask, setCurrentTask] = useState<TaskStage>('word');
   const [phase, setPhase] = useState<Phase>('ready');
   const [score, setScore] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [showBadge, setShowBadge] = useState(false);
 
   // 得分标注
@@ -240,11 +212,24 @@ export default function PracticeScreen() {
   const [unlockedBadgeId, setUnlockedBadgeId] = useState('');
 
   useEffect(() => {
+    // 初始化 TTS 引擎（支持字符级进度回调）
+    initTTS().catch((e) => {
+      console.warn('[practice] ⚠️ TTS 初始化失败:', e);
+    });
+    
+    // ★ 提前初始化录音系统，确保首次点击录音时一切就绪
+    initRecordingSystem().catch((e) => {
+      console.warn('[practice] ⚠️ 录音系统预初始化失败:', e);
+    });
+    
     initSession();
+    
     return () => {
       if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
       forceStopRecording();
+      stopTTS(); // 使用新的 TTS 停止函数
       stopAll();
+      destroyTTS(); // 销毁 TTS 引擎
       console.log('[practice] 🧹 组件卸载，已清理录音 + TTS 资源');
     };
   }, []);
@@ -264,10 +249,42 @@ export default function PracticeScreen() {
     }
   }, [phase, pulseAnim]);
 
+  // ===== 录音系统预初始化 =====
+  
+  /**
+   * 提前初始化录音系统，确保首次点击录音时一切就绪
+   * 问题：首次进入口语练习模块时，录音对象需要时间初始化，导致第一次点击录音失败
+   * 解决方案：在页面加载时提前完成所有准备工作
+   */
+  const initRecordingSystem = async () => {
+    console.log('[practice] 🎤 开始预初始化录音系统...');
+    
+    // 1. 提前请求录音权限
+    const hasPermission = await requestAudioPermission();
+    console.log(`[practice] 🎤 录音权限: ${hasPermission ? '已获取' : '未获取'}`);
+    
+    // 2. 设置音频模式（录音模式）
+    try {
+      const { forceSpeakerOutput } = await import('@/services/recordingService');
+      await forceSpeakerOutput();
+      console.log('[practice] 🎤 音频模式已设置为录音模式');
+    } catch (e) {
+      console.warn('[practice] ⚠️ 设置音频模式失败:', e);
+    }
+    
+    // 3. 准备录音对象（使用预加载模式，创建临时对象并立即停止，让系统预加载资源）
+    try {
+      const { prepareToRecord } = await import('@/services/recordingService');
+      await prepareToRecord(true); // true = 预加载模式
+      console.log('[practice] ✅ 录音系统预初始化完成，首次点击录音即可使用');
+    } catch (e) {
+      console.warn('[practice] ⚠️ 准备录音对象失败:', e);
+    }
+  };
+
   // ===== 会话管理 =====
 
   const initSession = async () => {
-    setLoading(true);
     setPhase('ready');
     setWordScoreLabel(null);
     setSentenceScoreLabel(null);
@@ -285,11 +302,17 @@ export default function PracticeScreen() {
       console.warn('[PracticeScreen] ⚠️ forceSpeakerOutput 失败:', e?.message);
     }
 
+    // 优先消费预加载缓存（用户点击 Tab 图标时已发起请求）
+    const preloaded = consumePreloadedPractice();
     const pending = consumePendingSession();
-    const s = pending ?? await fetchNextPracticeSet();
+    console.log(
+      `[PracticeScreen] initSession — preloaded=${preloaded ? `words=${preloaded.words.length}, completed=${preloaded.completed}` : 'null'}, ` +
+      `pending=${pending ? `words=${pending.words.length}, completed=${pending.completed}` : 'null'}`
+    );
+    const s = preloaded ?? pending ?? await fetchNextPracticeSet();
+    console.log(`[PracticeScreen] initSession — final session: words=${s.words.length}, completed=${s.completed}`);
 
     setSession(s);
-    setLoading(false);
     if (s.completed || s.words.length === 0) {
       setPhase('empty');
     } else {
@@ -705,27 +728,11 @@ export default function PracticeScreen() {
 
     // 记录学习活动（异步，不阻塞 UI）
     (async () => {
-      let overallBestScore = 0;
       for (const card of filledScores) {
-        // 取最高分（单词分或例句分），若都未评分则跳过
         const bestScore = Math.max(card.wordScore || 0, card.sentenceScore || 0);
         if (bestScore > 0) {
           await recordLearningActivity(card.word, bestScore, 'practice');
-          if (bestScore > overallBestScore) {
-            overallBestScore = bestScore;
-          }
         }
-      }
-      // 检查勋章解锁（口语练习相关）
-      try {
-        const newlyUnlocked = await checkPracticeAchievements(overallBestScore);
-        if (newlyUnlocked.length > 0) {
-          // 显示成就解锁弹窗
-          setUnlockedBadgeId(newlyUnlocked[0]);
-          setShowAchievementModal(true);
-        }
-      } catch (e) {
-        console.warn('   ⚠️ 检查勋章失败:', e);
       }
     })();
   };
@@ -761,14 +768,6 @@ export default function PracticeScreen() {
             <Text style={styles.primaryBtnText}>去拍照识别</Text>
           </TouchableOpacity>
         </View>
-      </View>
-    );
-  }
-
-  if (loading || !session) {
-    return (
-      <View style={[styles.container, { paddingTop: insets.top + 20 }]}>
-        <ActivityIndicator size="large" color={ANCHOR} />
       </View>
     );
   }
@@ -1262,6 +1261,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     lineHeight: 44,
     flexShrink: 0,
+    transitionProperty: 'color',
+    transitionDuration: '50ms',
+    transitionTimingFunction: 'ease-out',
   },
   wordSpace: {
     fontSize: 32,
@@ -1296,9 +1298,15 @@ const styles = StyleSheet.create({
   },
   sentenceCharHighlighted: {
     color: '#fff',
+    transitionProperty: 'color',
+    transitionDuration: '50ms',
+    transitionTimingFunction: 'ease-out',
   },
   sentenceCharDim: {
     color: 'rgba(255,255,255,0.5)', // 比单词未高亮时亮一些
+    transitionProperty: 'color',
+    transitionDuration: '50ms',
+    transitionTimingFunction: 'ease-out',
   },
   sentenceSpace: {
     fontSize: 24,
@@ -1325,9 +1333,15 @@ const styles = StyleSheet.create({
   },
   sentenceCharHighlightedLong: {
     color: '#fff',
+    transitionProperty: 'color',
+    transitionDuration: '50ms',
+    transitionTimingFunction: 'ease-out',
   },
   sentenceCharDimLong: {
     color: 'rgba(255,255,255,0.5)',
+    transitionProperty: 'color',
+    transitionDuration: '50ms',
+    transitionTimingFunction: 'ease-out',
   },
   sentenceSpaceLong: {
     fontSize: 20,

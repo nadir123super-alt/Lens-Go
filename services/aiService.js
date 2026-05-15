@@ -137,6 +137,8 @@ export async function analyzeCroppedPatch(croppedBase64, apiKey) {
             '2. 中文翻译\n' +
             '3. 针对该物体生成 2 句自然、地道、多样化的英语口语例句。\n' +
             '⚠️ 重要：严禁使用 "I see a..."、"I found a..." 这样的简单句式。例句必须是真实场景对话，如询问、描述、感叹、建议等不同语气。\n' +
+            '⚠️ 关键约束：每个 en 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 en 字段中。\n' +
+            '⚠️ 每个 cn 字段也必须且只能包含一个完整的中文句子。\n' +
             '你必须且只能返回如下固定 JSON 格式（不要任何 Markdown 标记或额外文字）：\n' +
             '{"word":"lamp","translation":"台灯","examples":[{"en":"Could you turn on the lamp? It\'s getting dark.","cn":"你能把台灯打开吗？天黑了。"},{"en":"This lamp gives such a warm and cozy glow.","cn":"这盏灯发出温暖舒适的光。"}]}\n' +
             '请确保 JSON 结构完整，必须以 } 结尾。\n' +
@@ -358,30 +360,85 @@ export async function analyzeImage(imageUri, apiKey) {
 import { fetchWordFromBank, upsertWordToBank } from './wordBankService';
 
 /**
- * 点击物体后，动态获取该物体的口语例句（带 Supabase 云端词库缓存机制）
- * 三级检索逻辑：
- * 1. 查云端：向 Supabase 发起请求查询词库
- * 2. 命中缓存：如果查到数据，直接返回，禁止调用 AI
- * 3. AI 补偿：如果云端没有数据，调用 AI 生成，生成后存入云端
+ * 获取单词的口语例句（带 Supabase 云端词库缓存机制）
+ * 双轨制词库隔离逻辑：shared=拍照, search=查询
  * 
- * @param {string} label - 物体的英文名
+ * 三级检索逻辑：
+ * 1. 查云端：向对应词库发起请求查询
+ * 2. 命中缓存：如果查到数据，直接返回，禁止调用 AI
+ * 3. AI 补偿：如果云端没有数据，调用 AI 生成，生成后存入对应词库
+ * 
+ * @param {string} label - 英文单词
  * @param {string} apiKey - 智谱 AI API 密钥
  * @param {boolean} [skipCache=false] - 是否跳过词库查询
+ * @param {'search' | 'camera'} [source='search'] - 来源类型，决定使用哪个词库
  * @returns {Promise<Array<{e: string, c: string}>>} 例句数组
  */
-export async function fetchPhrasesForObject(label, apiKey, skipCache = false) {
+export async function fetchPhrasesForObject(label, apiKey, skipCache = false, source = 'search') {
   if (!label || !apiKey) {
     throw new Error('缺少必要参数 label 或 apiKey');
   }
 
+  // 双轨制词库隔离：根据来源选择不同的词库
+  const bankTableName = source === 'search' ? 'search_word_bank' : 'shared_word_bank';
+  console.log(`📚 [fetchPhrasesForObject] 使用词库: ${bankTableName} (source: ${source})`);
+
   if (!skipCache) {
-    const cachedData = await fetchWordFromBank(label);
-    if (cachedData && cachedData.example_en && cachedData.example_cn) {
-      console.log(`✅ 从云端词库获取单词 "${label}" 的例句`);
-      return [{ e: cachedData.example_en, c: cachedData.example_cn }];
+    const cachedData = await fetchWordFromBank(label, bankTableName);
+    if (cachedData && cachedData.example_en_1 && cachedData.example_cn_1) {
+      console.log(`✅ 从云端词库 ${bankTableName} 获取单词 "${label}" 的例句`);
+      const phrases = [{ e: cachedData.example_en_1, c: cachedData.example_cn_1 }];
+      if (cachedData.example_en_2 && cachedData.example_cn_2) {
+        phrases.push({ e: cachedData.example_en_2, c: cachedData.example_cn_2 });
+      }
+      return phrases;
     }
   }
 
+  // AI 生成例句，带重试机制（最多重试 3 次）
+  const maxRetries = 3;
+  let lastError = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const phrases = await generatePhrasesWithAI(label, apiKey);
+      
+      // AI 生成成功后，异步存入对应词库
+      if (!skipCache && phrases.length >= 2) {
+        upsertWordToBank(
+          label, 
+          null, 
+          phrases[0].e, 
+          phrases[0].c, 
+          phrases[1].e, 
+          phrases[1].c,
+          bankTableName
+        ).catch(() => {});
+      }
+      
+      return phrases;
+    } catch (error) {
+      lastError = error;
+      console.warn(`⚠️ AI 生成例句失败（第 ${attempt}/${maxRetries} 次尝试）: ${error.message}`);
+      
+      if (attempt < maxRetries) {
+        // 等待后重试
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+  
+  // 所有重试都失败，抛出最后一次的错误
+  throw lastError || new Error('AI 生成例句失败');
+}
+
+/**
+ * 调用 AI 生成单词例句（单次尝试）
+ * @param {string} label - 英文单词
+ * @param {string} apiKey - 智谱 AI API 密钥
+ * @returns {Promise<Array<{e: string, c: string}>>} 例句数组
+ */
+async function generatePhrasesWithAI(label, apiKey) {
   const messages = [
     {
       role: 'user',
@@ -389,13 +446,15 @@ export async function fetchPhrasesForObject(label, apiKey, skipCache = false) {
         {
           type: 'text',
           text:
-            `你是一个英语老师。用户点选了"${label}"，` +
-            `请针对这个物体给出 2 个短小地道的英语口语例句，并带中文翻译。严禁任何开场白，直接返回纯 JSON。\n` +
+            `你是一个英语老师。用户查询了单词"${label}"，` +
+            `请针对这个单词给出 2 个短小地道的英语口语例句，并带中文翻译。严禁任何开场白，直接返回纯 JSON。\n` +
             `使用极简字段名：e 表示英文，c 表示中文。\n` +
             `生成的英文例句单词之间保持正常空格。\n` +
             `关键要求：生成的中文翻译必须根据语义词组使用空格进行分隔。例如：不要输出'他正在吃苹果'，必须输出'他 正在 吃 苹果'。\n` +
             `在生成中文翻译时，请按自然的语义词组（而不是单个汉字）进行空格分隔。例如：输出'煎鱼 的 时候 记得 打开 抽油烟机'，而不是'煎 鱼 的 时 候...'。\n` +
             `确保专有名词（如'抽油烟机'、'冰箱'）作为一个整体词块，中间不要加空格。\n` +
+            `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中。\n` +
+            `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子。\n` +
             `必须且只能返回 JSON 格式数据，结构如下（不要 Markdown 标记）：\n` +
             `{"phrases":[{"e":"英文例句1","c":"中文翻译1"},{"e":"英文例句2","c":"中文翻译2"}]}\n` +
             `请确保 JSON 结构完整，必须以 } 结尾。`,
@@ -428,7 +487,7 @@ export async function fetchPhrasesForObject(label, apiKey, skipCache = false) {
   } catch (fetchError) {
     clearTimeout(timeoutId);
     if (fetchError.name === 'AbortError') {
-      throw new Error('请求例句超时，请重试');
+      throw new Error('请求例句超时');
     }
     throw new Error(`网络请求失败: ${fetchError.message}`);
   }
@@ -448,25 +507,16 @@ export async function fetchPhrasesForObject(label, apiKey, skipCache = false) {
 
   const jsonString = extractJsonFromText(content);
 
-  try {
-    const parsed = safeParseJson(jsonString);
-    if (!Array.isArray(parsed.phrases)) {
-      throw new Error('返回数据缺少 phrases 字段');
-    }
-    
-    if (!skipCache && parsed.phrases.length > 0) {
-      const firstPhrase = parsed.phrases[0];
-      upsertWordToBank(label, null, null, firstPhrase.e, firstPhrase.c).catch(() => {});
-    }
-    
-    return parsed.phrases;
-  } catch (parseError) {
-    console.error('=== 例句返回原始内容 ===');
-    console.error(content);
-    console.error('=== 提取的 JSON 字符串 ===');
-    console.error(jsonString);
-    throw new Error(`解析例句失败: ${parseError.message}`);
+  const parsed = safeParseJson(jsonString);
+  if (!Array.isArray(parsed.phrases)) {
+    throw new Error('返回数据缺少 phrases 字段');
   }
+  
+  if (parsed.phrases.length < 2) {
+    throw new Error(`AI 返回例句不足（仅返回 ${parsed.phrases.length} 条，需要至少 2 条）`);
+  }
+  
+  return parsed.phrases;
 }
 
 /**

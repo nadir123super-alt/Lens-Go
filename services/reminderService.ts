@@ -5,18 +5,22 @@
  * 方案 A：本地通知 (expo-notifications) — 每天重复推送，文案随机化
  * 方案 B：日历日程 (expo-calendar) — 写入系统日历循环日程
  *
- * 数据持久化：使用 AsyncStorage 存储开关状态和提醒时间
+ * 数据持久化：
+ * - reminder_enabled / reminder_hour / reminder_minute → Supabase user_settings 表
+ * - calendar_event_id → AsyncStorage（本地日历系统集成，非用户数据）
+ * - 离线降级：无网络时读写 AsyncStorage 缓存，联网后自动同步至 Supabase
  */
+import { supabase } from '@/services/supabaseClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Calendar from 'expo-calendar';
 import { isRunningInExpoGo } from 'expo';
+import * as Calendar from 'expo-calendar';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 
-const STORAGE_KEY_REMINDER_ENABLED = '@myaienglish/reminder_enabled';
-const STORAGE_KEY_REMINDER_HOUR = '@myaienglish/reminder_hour';
-const STORAGE_KEY_REMINDER_MINUTE = '@myaienglish/reminder_minute';
-const STORAGE_KEY_CALENDAR_EVENT_ID = '@myaienglish/calendar_event_id';
+const STORAGE_KEY_REMINDER_ENABLED = '@lensgo/reminder_enabled';
+const STORAGE_KEY_REMINDER_HOUR = '@lensgo/reminder_hour';
+const STORAGE_KEY_REMINDER_MINUTE = '@lensgo/reminder_minute';
+const STORAGE_KEY_CALENDAR_EVENT_ID = '@lensgo/calendar_event_id';
 
 const REMINDER_TITLES = [
   '该来收集新单词了！',
@@ -253,7 +257,7 @@ export async function setupCalendarEvent(hour: number, minute: number): Promise<
         entityType: Calendar.EntityTypes.EVENT,
         sourceId: defaultCalendarSource.id,
         source: defaultCalendarSource,
-        name: 'myaienglish-calendar',
+        name: 'lensgo-calendar',
         ownerAccount: 'personal',
         accessLevel: Calendar.CalendarAccessLevel.OWNER,
       });
@@ -324,7 +328,50 @@ export interface ReminderSettings {
   minute: number;
 }
 
+/**
+ * 获取当前登录用户 ID
+ */
+async function getCurrentUserId(): Promise<string | null> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 从 Supabase 加载提醒设置，降级到 AsyncStorage
+ */
 export async function loadReminderSettings(): Promise<ReminderSettings> {
+  // 先尝试从 Supabase 加载
+  const userId = await getCurrentUserId();
+  if (userId) {
+    try {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('reminder_enabled, reminder_hour, reminder_minute')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!error && data) {
+        const settings: ReminderSettings = {
+          enabled: data.reminder_enabled ?? false,
+          hour: data.reminder_hour ?? 20,
+          minute: data.reminder_minute ?? 0,
+        };
+        // 同步到 AsyncStorage 作为离线缓存
+        await AsyncStorage.setItem(STORAGE_KEY_REMINDER_ENABLED, String(settings.enabled));
+        await AsyncStorage.setItem(STORAGE_KEY_REMINDER_HOUR, String(settings.hour));
+        await AsyncStorage.setItem(STORAGE_KEY_REMINDER_MINUTE, String(settings.minute));
+        return settings;
+      }
+    } catch (e) {
+      console.warn('[Reminder] Supabase 读取设置失败，降级到 AsyncStorage:', e);
+    }
+  }
+
+  // 降级：从 AsyncStorage 读取
   try {
     const enabledStr = await AsyncStorage.getItem(STORAGE_KEY_REMINDER_ENABLED);
     const hourStr = await AsyncStorage.getItem(STORAGE_KEY_REMINDER_HOUR);
@@ -340,13 +387,41 @@ export async function loadReminderSettings(): Promise<ReminderSettings> {
   }
 }
 
+/**
+ * 保存提醒设置到 Supabase 和 AsyncStorage（离线缓存）
+ */
 export async function saveReminderSettings(settings: ReminderSettings): Promise<void> {
+  // 始终写入 AsyncStorage 作为离线缓存
   try {
     await AsyncStorage.setItem(STORAGE_KEY_REMINDER_ENABLED, String(settings.enabled));
     await AsyncStorage.setItem(STORAGE_KEY_REMINDER_HOUR, String(settings.hour));
     await AsyncStorage.setItem(STORAGE_KEY_REMINDER_MINUTE, String(settings.minute));
   } catch (e) {
-    console.warn('[Reminder] 保存设置失败:', e);
+    console.warn('[Reminder] AsyncStorage 保存设置失败:', e);
+  }
+
+  // 尝试同步到 Supabase
+  const userId = await getCurrentUserId();
+  if (userId) {
+    try {
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert({
+          user_id: userId,
+          reminder_enabled: settings.enabled,
+          reminder_hour: settings.hour,
+          reminder_minute: settings.minute,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id',
+        });
+
+      if (error) {
+        console.warn('[Reminder] Supabase 保存设置失败，已降级到本地缓存:', error);
+      }
+    } catch (e) {
+      console.warn('[Reminder] Supabase 保存设置异常，已降级到本地缓存:', e);
+    }
   }
 }
 

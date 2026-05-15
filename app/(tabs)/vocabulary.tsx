@@ -14,16 +14,15 @@ import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  FlatList,
-  Image as RNImage,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Animated,
+    FlatList,
+    Image as RNImage,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,8 +33,9 @@ export default function VocabularyScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [list, setList] = useState<VocabEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const isFirstLoad = useRef(true);
 
   // ----- 防抖引用 (for 500+ word optimization) -----
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,13 +49,22 @@ export default function VocabularyScreen() {
   );
 
   const loadVocab = async () => {
-    setLoading(true);
-    setList([]);
     try {
+      // 每次都从数据库重新加载，确保获取最新数据（包括刚收藏的单词）
       const data = await getVocabulary();
       setList(data);
-    } catch {} finally {
-      setLoading(false);
+      // 首次加载完成后触发渐现动画
+      if (isFirstLoad.current) {
+        isFirstLoad.current = false;
+        fadeAnim.setValue(0);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
+    } catch (error) {
+      console.error('[VocabularyScreen] 加载生词本失败:', error);
     }
   };
 
@@ -193,39 +202,39 @@ export default function VocabularyScreen() {
         </View>
       </View>
 
-      {loading ? (
-        <ActivityIndicator size="large" color="#FF6B6B" style={{ marginTop: 60 }} />
-      ) : filteredWords.length === 0 ? (
-        <View style={styles.emptyState}>
-          {searchText.trim() ? (
-            <>
-              <Feather name="search" size={48} color="#ccc" />
-              <Text style={styles.emptyTitle}>未找到相关单词</Text>
-              <Text style={styles.emptySub}>试试其他的关键词</Text>
-            </>
-          ) : (
-            <>
-              <View style={styles.emptyIconWrap}>
-                <Ionicons name="book-outline" size={56} color="#FF6B6B" />
-              </View>
-              <Text style={styles.emptyTitle}>还没有生词</Text>
-              <Text style={styles.emptySub}>拍照识别或查词时收藏的单词会出现在这里</Text>
-              <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/camera')}>
-                <Text style={styles.emptyBtnText}>去拍照识别</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      ) : (
-        <FlatList
-          data={filteredWords}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        />
-      )}
+      <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+        {filteredWords.length === 0 ? (
+          <View style={styles.emptyState}>
+            {searchText.trim() ? (
+              <>
+                <Feather name="search" size={48} color="#ccc" />
+                <Text style={styles.emptyTitle}>未找到相关单词</Text>
+                <Text style={styles.emptySub}>试试其他的关键词</Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons name="book-outline" size={56} color="#FF6B6B" />
+                </View>
+                <Text style={styles.emptyTitle}>还没有生词</Text>
+                <Text style={styles.emptySub}>拍照识别或查词时收藏的单词会出现在这里</Text>
+                <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/camera')}>
+                  <Text style={styles.emptyBtnText}>去拍照识别</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        ) : (
+          <FlatList
+            data={filteredWords}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          />
+        )}
+      </Animated.View>
     </View>
   );
 }
@@ -342,7 +351,7 @@ function VocabCard({
               <Text style={styles.cardWord} numberOfLines={1}>
                 {item.word}
               </Text>
-              <Text style={styles.cardTrans} numberOfLines={1}>
+              <Text style={styles.cardTrans} numberOfLines={1} ellipsizeMode="tail">
                 {item.translation}
               </Text>
             </View>
@@ -468,13 +477,19 @@ const styles = StyleSheet.create({
 
   // ===== 中：文字 =====
   cardCenter: { flex: 1, justifyContent: 'center' },
-  cardWordRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 },
+  cardWordRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardWord: {
     fontSize: 17,
     fontWeight: '700',
     color: '#FFFFFF',
+    flexShrink: 0,
   },
-  cardTrans: { fontSize: 14, color: '#BBBBBB', flexShrink: 1 },
+  cardTrans: { 
+    fontSize: 14, 
+    color: '#BBBBBB', 
+    flexShrink: 1,
+    maxWidth: 180,
+  },
   cardMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 },
   sourceDot: {
     backgroundColor: 'rgba(255,107,107,0.12)',

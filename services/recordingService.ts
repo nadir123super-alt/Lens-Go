@@ -232,8 +232,11 @@ async function safeStopAndUnload(): Promise<void> {
 /**
  * 准备工作：重新创建录音实例
  * 在 canRecord 为 false 时调用，避免复用已崩溃的对象
+ * 
+ * ★ 新增：预加载模式支持 - 如果 preload 参数为 true，会创建录音对象并立即停止，
+ * 让系统提前加载录音资源，避免首次点击录音时的延迟
  */
-export async function prepareToRecord(): Promise<void> {
+export async function prepareToRecord(preload: boolean = false): Promise<void> {
   // 先清理残余
   await safeStopAndUnload();
   resetVolumeTracking();
@@ -253,6 +256,19 @@ export async function prepareToRecord(): Promise<void> {
     console.log('[recordingService] ✅ Audio.setAudioModeAsync 已设置 (prepareToRecord) [Speaker+NoDuck]');
   } catch (e: any) {
     console.warn('[recordingService] ⚠️ setAudioModeAsync 失败 (prepareToRecord):', e?.message);
+  }
+
+  // ★ 预加载模式：创建录音对象并立即停止，让系统提前加载录音资源
+  if (preload) {
+    try {
+      console.log('[recordingService] 🎤 预加载模式：创建临时录音对象...');
+      const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+      // 立即停止，让系统完成初始化流程
+      await recording.stopAndUnloadAsync();
+      console.log('[recordingService] ✅ 预加载完成：录音对象已创建并释放，下次录音可直接使用');
+    } catch (e: any) {
+      console.warn('[recordingService] ⚠️ 预加载失败（不影响后续录音）:', e?.message);
+    }
   }
 
   console.log('[recordingService] 🔄 录音对象已重新初始化');

@@ -2,19 +2,29 @@
  * SoundManager — 全局音频播放管理器
  *
  * 职责：
- * 1. 全局跟踪当前正在播放的音频实例（TTS + expo-audio Player）
+ * 1. 全局跟踪当前正在播放的 TTS 实例
  * 2. "即点即停"：播放新音频前自动停止当前播放
  * 3. "退出即停"：提供 cleanup() 供 useEffect 卸载时调用
  * 4. 支持全局语速调节：读取 speechSettingsService 中的语速值
- *
- * TODO: 如需更高质量的 TTS 引擎（如 ElevenLabs），
- * 可在 playText() 中替换为 expo-audio 播放下载的音频文件。
+ * 5. 模拟字符级进度回调，实现"KTV式"高亮效果
  */
 import * as Speech from 'expo-speech';
 import { Platform } from 'react-native';
-import { checkRepeaterAchievement } from './achievementService';
+import {
+  getAudioPlayCompleteCount,
+  getWordClickCounts,
+  incrementAudioPlayCompleteCount,
+  incrementPageLocalCount,
+  recordWordClick
+} from '../utils/audioCounter';
 import { getSpeechRate } from './speechSettingsService';
 import { cleanTextForSpeech } from './textCleaner';
+
+// ====== 语速基准校准 ======
+// BASE_RATE = 0.9：将系统当前的 0.9x 物理语速设定为新的 1.0x 标准语速。
+// UI 上显示 1.0x 时，实际传给 TTS 引擎的参数为 1.0 * BASE_RATE = 0.9，
+// 确保用户听到的"标准语速"更从容、更自然。
+const BASE_RATE = 0.9;
 
 // ====== 音量增强 ======
 
@@ -34,30 +44,8 @@ import { cleanTextForSpeech } from './textCleaner';
  */
 let _ensureAudioSession: (() => Promise<void>) | null = null;
 
-// 发音播放完成计数器（用于"复读机"勋章）
-// 本地缓冲计数：只在音频完整播放完毕时才加 1
-let _audioPlayCompleteCount = 0;
-export function getAudioPlayCompleteCount(): number {
-  return _audioPlayCompleteCount;
-}
-
-// 页面级本地计数器（用于批量同步）
-let _pageLocalCount = 0;
-export function getPageLocalCount(): number {
-  return _pageLocalCount;
-}
-
-// 重置页面本地计数器（页面加载时调用）
-export function resetPageLocalCount(): void {
-  _pageLocalCount = 0;
-}
-
-// 获取并重置页面本地计数器（页面卸载时调用，用于批量同步）
-export function consumePageLocalCount(): number {
-  const count = _pageLocalCount;
-  _pageLocalCount = 0;
-  return count;
-}
+// 计数器已迁移至 utils/audioCounter.ts
+// 通过 import 使用 getAudioPlayCompleteCount / incrementAudioPlayCompleteCount 等
 
 export function setAudioSessionEnsurer(fn: () => Promise<void>): void {
   _ensureAudioSession = fn;
@@ -75,8 +63,7 @@ async function ensureMaxVolumeBeforeSpeak(): Promise<void> {
 }
 
 type AudioSource =
-  | { type: 'tts'; text: string }
-  | { type: 'file'; uri: string };
+  | { type: 'tts'; text: string };
 
 let current: {
   source: AudioSource;
@@ -92,6 +79,8 @@ let progressTimer: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval
  * - 清除内部引用
  */
 export function stopAll(): void {
+  console.log('[SoundManager] stopAll()');
+  
   // expo-speech 全局停止所有 TTS 语音
   Speech.stop();
 
@@ -112,90 +101,95 @@ export function stopAll(): void {
  * @param text 要朗读的英文文本
  * @param onDone 可选回调，播放完毕后执行
  * @param onProgress 可选回调，播放进度更新时执行（返回已播放字符数）
+ * @param word 可选，当前单词（用于成就追踪）
  */
-export function playText(text: string, onDone?: () => void, onProgress?: (progress: number) => void): void {
+export function playText(
+  text: string,
+  onDone?: () => void,
+  onProgress?: (progress: number) => void,
+  word?: string,
+): void {
+  console.log(`[SoundManager] playText() 被调用: "${text.substring(0, 50)}..."`);
+
   // "即点即停"：先停止当前语音
   if (current) {
+    console.log('[SoundManager] 停止当前播放');
     stopAll();
   }
 
-  // 注册新的播放
+  const cleanedText = cleanTextForSpeech(text);
+  if (!cleanedText || cleanedText.trim().length === 0) {
+    console.warn('[SoundManager] 文本为空，跳过播放');
+    return;
+  }
+
+  // 直接使用 expo-speech 播放
+  playWithExpoSpeech(cleanedText, onDone, onProgress, word);
+}
+
+/**
+ * 使用 expo-speech（系统原生 TTS）播放
+ */
+function playWithExpoSpeech(
+  text: string,
+  onDone?: () => void,
+  onProgress?: (progress: number) => void,
+  word?: string
+): void {
+  console.log('[SoundManager] ===== 使用 expo-speech =====');
+  
+  // 注册为 TTS 播放
   current = { source: { type: 'tts', text } };
 
-  // 使用 expo-speech 朗读
-  // 此 API 无 pause/resume 需求，直接 speak
   const callback = onDone
     ? () => {
         onDone();
-        // 如果当前就是本段语音，播完后清理引用
         if (current?.source.type === 'tts' && current.source.text === text) {
           current = null;
         }
       }
     : undefined;
 
-  const cleanedText = cleanTextForSpeech(text);
-  
-  // 模拟进度回调（expo-speech 不提供进度，我们用定时器模拟）
-  const totalLength = cleanedText.length;
+  const totalLength = text.length;
   let currentProgress = 0;
   
   if (onProgress) {
-    // 根据英语发音规则估算每个字符的发音时长
-    // 考虑因素：元音 vs 辅音、音节位置、单词重音
     const getCharDuration = (char: string, index: number, text: string): number => {
       const vowels = 'aeiouAEIOU';
-      const shortConsonants = 'ptkbdg'; // 爆破音
-      const longConsonants = 'mnlrsw'; // 鼻音、流音、摩擦音
+      const shortConsonants = 'ptkbdg';
+      const longConsonants = 'mnlrsw';
       const diphthongs = ['ai', 'ay', 'ea', 'ee', 'ei', 'ey', 'ie', 'oa', 'oe', 'oi', 'oy', 'oo', 'ou', 'ow', 'ui'];
       
       const c = char.toLowerCase();
-      
-      // 检查是否是双元音的一部分
       const prevChar = index > 0 ? text[index - 1].toLowerCase() : '';
       const nextChar = index < text.length - 1 ? text[index + 1].toLowerCase() : '';
       const isPartOfDiphthong = diphthongs.includes(prevChar + c) || diphthongs.includes(c + nextChar);
       
       if (vowels.includes(char)) {
-        // 元音时长：双元音 > 长元音 > 短元音
-        if (isPartOfDiphthong) {
-          return 180; // 双元音
-        }
-        // 检查是否是重读元音（简化：单词开头或单独音节）
+        if (isPartOfDiphthong) return 180;
         const isStressed = index === 0 || (index > 0 && text[index - 1] === ' ');
         return isStressed ? 140 : 100;
       } else if (shortConsonants.includes(c)) {
-        // 短辅音：爆破音
         return 45;
       } else if (longConsonants.includes(c)) {
-        // 长辅音：鼻音、流音、摩擦音
         return 75;
       } else if (c === 'h' || c === 'y') {
-        // 弱辅音
         return 35;
       } else {
-        // 其他辅音
         return 55;
       }
     };
     
-    // 计算每个字符的播放时长
     const charDurations: number[] = [];
-    for (let i = 0; i < cleanedText.length; i++) {
-      charDurations.push(getCharDuration(cleanedText[i], i, cleanedText));
+    for (let i = 0; i < text.length; i++) {
+      charDurations.push(getCharDuration(text[i], i, text));
     }
     
-    // 计算总时长并调整语速
-    const estimatedTotalDuration = charDurations.reduce((sum, dur) => sum + dur, 0);
+    const speedFactor = (1 / BASE_RATE) * 0.95;
     
-    // 根据语速调整（0.9 是 speech rate，实际语速可能需要微调）
-    // 额外调整因子以更好地匹配实际 TTS 速度
-    const speedFactor = (1 / 0.9) * 0.95; // 稍微减慢模拟进度，更接近实际播放
-    
-    // 使用 setTimeout 链式调用，根据每个字符的估算时长依次更新进度
     const scheduleNext = (index: number) => {
-      if (index >= cleanedText.length) {
-        onProgress(cleanedText.length);
+      if (index >= text.length) {
+        onProgress(text.length);
         return;
       }
       
@@ -211,126 +205,92 @@ export function playText(text: string, onDone?: () => void, onProgress?: (progre
     scheduleNext(0);
   }
 
-  // 在 TTS 播放前，确保音频会话已配置为最大音量输出
   ensureMaxVolumeBeforeSpeak().then(() => {
-    // 从内存缓存中实时读取用户设定的语速
     const userRate = getSpeechRate();
+    const adjustedRate = userRate * BASE_RATE;
+
+    console.log(`[SoundManager] Speech.speak() 即将调用: text="${text.substring(0, 30)}...", rate=${adjustedRate}, language=en`);
 
     const ttsOptions: any = {
       language: 'en',
-      rate: userRate,
+      rate: adjustedRate,
       pitch: 1.0,
       volume: 1.0,
       onDone: () => {
+        console.log('[SoundManager] expo-speech 播放完成');
         if (progressTimer) clearTimeout(progressTimer);
-        // 确保最后更新到完整进度
         if (onProgress && currentProgress < totalLength) {
           onProgress(totalLength);
         }
         
-        // 音频完整播放完毕，增加计数器（用于"复读机"勋章）
-        _audioPlayCompleteCount++;
-        _pageLocalCount++;
-        
-        // 每 10 次检查一次勋章解锁（避免频繁查询）
-        if (_audioPlayCompleteCount % 10 === 0) {
-          checkRepeaterAchievement(_audioPlayCompleteCount).then((newlyUnlocked) => {
-            if (newlyUnlocked) {
-              (global as any).__pendingUnlockBadges = ['repeater'];
-            }
-          }).catch((e: any) =>
-            console.warn('   ⚠️ 检查复读机勋章失败:', e)
-          );
-        }
+        trackAchievements(word);
         
         if (callback) callback();
       },
-      onError: () => {
+      onError: (error: any) => {
         if (progressTimer) clearTimeout(progressTimer);
-        console.warn('[SoundManager] TTS 播放出错:', cleanedText);
+        console.warn('[SoundManager] TTS 播放出错:', error?.message || error, 'text:', text);
         current = null;
       },
     };
 
-    // iOS: 使用独立音频会话，避免与录音模式冲突导致音量压低
     if (Platform.OS === 'ios') {
       ttsOptions.useApplicationAudioSession = false;
     }
 
-    Speech.speak(cleanedText, ttsOptions);
+    try {
+      Speech.speak(text, ttsOptions);
+      console.log('[SoundManager] Speech.speak() 调用成功');
+    } catch (e: any) {
+      console.error('[SoundManager] Speech.speak() 抛出异常:', e?.message || e);
+    }
   });
 }
 
 /**
- * 使用 expo-audio 播放本地音频文件
- * 如果当前有正在播放的音频，先停止再播放新的
- *
- * @param uri 音频文件 URI（file:// 或 asset://）
- * @returns 播放器实例（可外部调用 .stopAsync()），
- *          或 null（如果 expo-audio 不可用）
+ * 成就追踪（播放完成后的成就检查）
  */
-export async function playFile(uri: string) {
-  // "即点即停"：先停止当前语音
-  if (current) {
-    stopAll();
-  }
-
-  // 动态导入 expo-audio（避免启动时依赖）
-  let AudioModule: any;
-  try {
-    AudioModule = (await import('expo-audio')).AudioModule;
-  } catch {
-    console.warn('[SoundManager] expo-audio 不可用，无法播放文件');
-    return null;
-  }
-
-  // expo-audio 导出的是 AudioModule 命名空间，
-  // 尝试通过 AudioModule.Player 或 createPlayer 创建播放器
-  let player: any = null;
-
-  try {
-    // expo-audio 的 AudioModule 包含 Player 构造函数
-    if (AudioModule.Player) {
-      player = new AudioModule.Player();
-    } else {
-      // expo-audio 不暴露构造函数 → 直接退出
-      console.warn('[SoundManager] expo-audio Player 不可用');
-      return null;
-    }
-  } catch (err) {
-    console.warn('[SoundManager] 创建播放器失败:', err);
-    return null;
-  }
-
-  if (!player) return null;
-
-  // 注册当前播放
-  current = { source: { type: 'file', uri } };
-
-  // 如果 player 有 playAsync / play 方法
-  if (player.playAsync) {
-    player.playAsync().catch((err: any) => {
-      console.warn('[SoundManager] 文件播放失败:', err);
-      if (current?.source.type === 'file' && current.source.uri === uri) {
-        current = null;
-      }
-    });
-  }
-
-  // 注册完成回调（如果 player 支持）
-  if (player.setOnPlaybackStatusUpdate) {
-    player.setOnPlaybackStatusUpdate((status: any) => {
-      if (status.didJustFinish) {
-        if (current?.source.type === 'file' && current.source.uri === uri) {
-          current = null;
+async function trackAchievements(word?: string): Promise<void> {
+  // 音频完整播放完毕，增加计数器（用于"复读机"勋章）
+  incrementAudioPlayCompleteCount();
+  incrementPageLocalCount();
+  
+  // 使用内存计数器检查（用于"复读机"勋章）
+  const currentCount = getAudioPlayCompleteCount();
+  
+  // 每 10 次检查一次勋章解锁（避免频繁查询）
+  if (currentCount % 10 === 0) {
+    import('./achievementService').then(({ checkRepeaterAchievement }) => {
+      checkRepeaterAchievement(currentCount).then((newlyUnlocked) => {
+        if (newlyUnlocked) {
+          (global as any).__pendingUnlockBadges = ['repeater'];
         }
-        // 自动卸载以释放资源
-        player.unloadAsync?.().catch(() => {});
-      }
-    });
+      }).catch((e: any) =>
+        console.warn('   ⚠️ 检查复读机勋章失败:', e)
+      );
+    }).catch((e: any) =>
+      console.warn('   ⚠️ 动态导入 achievementService 失败:', e)
+    );
   }
-
-  return player;
+  
+  // 如果传入了 word 参数，追踪该单词的发音点击次数（用于"念念不忘"勋章）
+  if (word) {
+    const clickCount = recordWordClick(word);
+    if (clickCount > 0 && clickCount % 10 === 0) {
+      import('./achievementService').then(({ checkUnforgettable }) => {
+        const counts = getWordClickCounts();
+        checkUnforgettable(counts).then((newlyUnlocked) => {
+          if (newlyUnlocked.length > 0) {
+            (global as any).__pendingUnlockBadges = newlyUnlocked;
+          }
+        }).catch((e: any) =>
+          console.warn('   ⚠️ 检查念念不忘勋章失败:', e)
+        );
+      }).catch((e: any) =>
+        console.warn('   ⚠️ 动态导入 achievementService 失败:', e)
+      );
+    }
+  }
 }
 
 /**
@@ -363,5 +323,5 @@ export function getCurrentInfo(): string | null {
   if (current.source.type === 'tts') {
     return `TTS: "${current.source.text.substring(0, 30)}..."`;
   }
-  return `File: ${current.source.uri.substring(0, 40)}...`;
+  return null;
 }

@@ -10,24 +10,22 @@
  */
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { decode } from 'base64-arraybuffer';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import UserAvatar from '../components/UserAvatar';
+import { useAuth } from '../services/AuthContext';
 import { supabase } from '../services/supabaseClient';
 
 const ANCHOR_COLOR = '#FF6B6B';
@@ -35,8 +33,10 @@ const ANCHOR_COLOR = '#FF6B6B';
 export default function SettingsDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { signOut } = useAuth();
 
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
+  const [avatarType, setAvatarType] = useState<number>(0);
   const [nickname, setNickname] = useState('');
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -58,148 +58,21 @@ export default function SettingsDetailScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      setUserId(user.id);
+
       const { data: profile } = await supabase
         .from('profiles')
-        .select('avatar_url, nickname, email')
+        .select('avatar_type, nickname, email')
         .eq('id', user.id)
         .single();
 
       if (profile) {
-        setAvatarUrl(profile.avatar_url || null);
+        setAvatarType(profile.avatar_type || 0);
         setNickname(profile.nickname || '英语学习者');
         setEmail(profile.email || user.email || '');
       }
     } catch (error) {
       console.warn('[SettingsDetail] 加载用户信息失败:', error);
-    }
-  };
-
-  // 选择头像
-  const handleAvatarChange = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('权限不足', '请在设置中开启相册权限');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.5,
-    });
-
-    if (!result.canceled && result.assets.length > 0) {
-      const uri = result.assets[0].uri;
-      await uploadAvatar(uri);
-    }
-  };
-
-  // 上传头像
-  const uploadAvatar = async (uri: string) => {
-    // ============================================================
-    // 调试：检查当前认证状态
-    // ============================================================
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    console.log('[SettingsDetail] 当前 Session:', session ? `有效 (user: ${session.user.id})` : '无效');
-    if (sessionError) {
-      console.warn('[SettingsDetail] 获取 Session 失败:', sessionError);
-    }
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    console.log('[SettingsDetail] 当前用户:', user ? user.id : '未登录');
-    if (userError) {
-      console.warn('[SettingsDetail] 获取用户失败:', userError);
-    }
-
-    if (!user) {
-      Alert.alert('未登录', '请先登录后再上传头像');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // 获取旧头像文件名（用于后续删除）
-      const oldAvatarUrl = avatarUrl;
-      const oldFileName = oldAvatarUrl ? oldAvatarUrl.split('/').pop() : null;
-
-      // 生成新文件名：{userId}/{timestamp}_{random}.png
-      const timestamp = Date.now();
-      const random = Math.random().toString(36).substring(2, 9);
-      const fileName = `${user.id}/${timestamp}_${random}.png`;
-
-      // ============================================================
-      // 使用 expo-file-system 读取 base64，然后用 base64-arraybuffer
-      // 解码为 ArrayBuffer 上传到 Supabase Storage。
-      //
-      // 为什么用 ArrayBuffer？
-      // Supabase JS SDK 官方文档明确指出：
-      //   "For React Native, using either Blob, File or FormData does
-      //    not work as intended. Upload file using ArrayBuffer from
-      //    base64 file data instead"
-      // （参见 SDK 源码 upload 方法的 @remarks 注释）
-      //
-      // 使用 ArrayBuffer 时，SDK 会走 else 分支（第 605-610 行），
-      // 直接发送原始二进制数据并设置 content-type 头。
-      // ============================================================
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // 使用 base64-arraybuffer 库解码为 ArrayBuffer
-      const arrayBuffer = decode(base64);
-
-      console.log('[SettingsDetail] 准备上传文件:', {
-        fileName,
-        size: arrayBuffer.byteLength,
-        type: 'image/png',
-      });
-
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, arrayBuffer, {
-          contentType: 'image/png',
-          upsert: true,
-        });
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      console.log('[SettingsDetail] 文件上传成功:', fileName);
-
-      // 获取公开 URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(fileName);
-
-      // 更新数据库
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ avatar_url: publicUrl })
-        .eq('id', user.id);
-
-      if (updateError) {
-        // 如果数据库更新失败，尝试删除已上传的文件
-        await supabase.storage.from('avatars').remove([fileName]).catch(() => {});
-        throw updateError;
-      }
-
-      // 清理旧文件（如果存在）
-      if (oldFileName && oldFileName !== fileName) {
-        await supabase.storage.from('avatars').remove([oldFileName]).catch((e) => {
-          console.warn('[SettingsDetail] 删除旧头像失败:', e);
-        });
-      }
-
-      // 更新前端状态
-      setAvatarUrl(publicUrl);
-      Alert.alert('成功', '头像已更新');
-    } catch (error) {
-      console.warn('[SettingsDetail] 上传头像失败:', error);
-      Alert.alert('错误', '头像上传失败，请重试');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -220,8 +93,7 @@ export default function SettingsDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await supabase.auth.signOut();
-              router.replace('/login');
+              await signOut();
             } catch (error) {
               console.warn('[SettingsDetail] 退出登录失败:', error);
             }
@@ -251,9 +123,8 @@ export default function SettingsDetailScreen() {
                 throw error;
               }
 
-              // 清除本地缓存并跳转
-              await supabase.auth.signOut();
-              router.replace('/login');
+              // 清除本地缓存并跳转（使用集中式 signOut）
+              await signOut();
             } catch (error) {
               console.error('[SettingsDetail] 注销账号失败:', error);
               Alert.alert('错误', '注销失败，请稍后重试或联系客服');
@@ -289,32 +160,22 @@ export default function SettingsDetailScreen() {
             <Text style={s.sectionTitle}>个人资料</Text>
           </View>
 
-          {/* 头像 */}
-          <TouchableOpacity
-            style={s.avatarRow}
-            onPress={handleAvatarChange}
-            activeOpacity={0.7}
-            disabled={loading}
-          >
-            <View style={s.avatarWrapper}>
-              {loading ? (
-                <View style={s.avatarPlaceholder}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                </View>
-              ) : avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={s.avatar} />
-              ) : (
+          {/* 头像 — ScrapLab 专属数字形象 */}
+          <View style={s.avatarRow}>
+            {userId && avatarType > 0 ? (
+              <UserAvatar userId={userId} avatarType={avatarType} size={80} />
+            ) : (
+              <View style={s.avatarWrapper}>
                 <View style={s.avatarPlaceholder}>
                   <Feather name="user" size={40} color="#FFFFFF" />
                 </View>
-              )}
-            </View>
+              </View>
+            )}
             <View style={s.avatarInfo}>
               <Text style={s.avatarLabel}>头像</Text>
-              <Text style={s.avatarHint}>点击更换</Text>
+              <Text style={s.avatarHint}>你的专属数字形象</Text>
             </View>
-            <Feather name="chevron-right" size={20} color="#666" />
-          </TouchableOpacity>
+          </View>
 
           <View style={s.divider} />
           {/* 昵称 */}
@@ -354,7 +215,7 @@ export default function SettingsDetailScreen() {
           <TouchableOpacity style={s.row} activeOpacity={0.7}>
             <Feather name="info" size={18} color="#888" />
             <Text style={s.rowLabel}>关于</Text>
-            <Text style={s.rowValue}>MyAIEnglishApp v1.0.0</Text>
+            <Text style={s.rowValue}>LensGo v1.0.0</Text>
             <Feather name="chevron-right" size={20} color="#666" />
           </TouchableOpacity>
         </View>
@@ -442,11 +303,6 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#2A2A2A',
   },
-  avatar: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
   avatarPlaceholder: {
     width: '100%',
     height: '100%',
@@ -512,11 +368,11 @@ const s = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     borderRadius: 12,
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#2A2A2A',
   },
   logoutText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#FF9595',
   },
 });

@@ -2,10 +2,17 @@
  * SearchScreen - 纯净词典查询（仅本地 SQLite 词典）
  *
  * 查询链路：
- *   输入 → 实时前缀联想（SQLite LIKE，前 10 条）
+ *   输入 → 实时模糊联想（SQLite LIKE，英汉双向，前 20 条，带节流）
  *        → 点击联想项 / 按搜索 → SQLite 精确查询
  *        → 本地命中 → 点击跳转 word-detail 展示
  *        → 本地未命中 → 显示"未找到"，不调用 AI
+ *
+ * 搜索逻辑（v2）：
+ *   - 支持英文原词和中文含义双向模糊查询
+ *   - 多字段匹配：同时检索 word（英文）和 translation（中文翻译）字段
+ *   - 优先级排序：英文完全匹配 > 英文前缀匹配 > 中文包含匹配 > 英文模糊匹配
+ *   - 实时搜索带节流（300ms）
+ *   - 搜索结果使用 FlatList 可滚动容器
  *
  * 已移除：
  *   - AI 搜索（searchWordDefinition）调用
@@ -48,18 +55,47 @@ export default function SearchScreen() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // 节流 timer
+  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 自动聚焦
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 300);
     return () => clearTimeout(timer);
   }, []);
 
-  // ── 实时模糊联想 ──
+  // 清理节流
+  useEffect(() => {
+    return () => {
+      if (throttleRef.current) clearTimeout(throttleRef.current);
+    };
+  }, []);
+
+  // ── 执行模糊搜索（节流 300ms） ──
+  const doFuzzySearch = useCallback((text: string) => {
+    if (!text.trim()) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    fuzzySearch(text, 20).then(hits => {
+      setSuggestions(hits);
+      setShowSuggestions(hits.length > 0);
+    });
+  }, []);
+
+  // ── 实时模糊联想（带节流） ──
   const handleQueryChange = useCallback((text: string) => {
     setQuery(text);
     setDictResult(null);
     setErrorMsg('');
     setState('idle');
+
+    // 清除之前的节流
+    if (throttleRef.current) {
+      clearTimeout(throttleRef.current);
+    }
 
     if (!text.trim()) {
       setSuggestions([]);
@@ -67,12 +103,11 @@ export default function SearchScreen() {
       return;
     }
 
-    // SQLite LIKE 前缀匹配（异步，毫秒级）
-    fuzzySearch(text, 10).then(hits => {
-      setSuggestions(hits);
-      setShowSuggestions(hits.length > 0);
-    });
-  }, []);
+    // 300ms 节流后执行搜索
+    throttleRef.current = setTimeout(() => {
+      doFuzzySearch(text);
+    }, 300);
+  }, [doFuzzySearch]);
 
   // ── 直接导航到单词详情页 ──
   const navigateToWordDetail = useCallback((result: DictResult) => {
@@ -145,7 +180,7 @@ export default function SearchScreen() {
             <TextInput
               ref={inputRef}
               style={styles.textInput}
-              placeholder="输入英文单词..."
+              placeholder="输入英文或中文..."
               placeholderTextColor="#bbb"
               value={query}
               onChangeText={handleQueryChange}
@@ -169,52 +204,41 @@ export default function SearchScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 模糊联想列表 */}
-        {showSuggestions && suggestions.length > 0 && (
-          <View style={styles.suggestionsContainer}>
-            {suggestions.map((item, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={styles.suggestionItem}
-                onPress={() => handleSuggestionPress(item)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.suggestionLeft}>
-                  <Text style={styles.suggestionWord}>{item.word}</Text>
-                  {item.phonetic ? (
-                    <Text style={styles.suggestionPhonetic}>{item.phonetic}</Text>
-                  ) : null}
-                </View>
-                <Text style={styles.suggestionTrans} numberOfLines={1}>
-                  {item.translation || item.definition}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* 内容区 */}
+        {/* 主内容区：使用 FlatList 统一管理所有可滚动内容 */}
         <FlatList
           style={styles.contentArea}
           contentContainerStyle={styles.contentContainer}
           keyboardShouldPersistTaps="handled"
-          data={[0]}
-          renderItem={() => null}
-          ListEmptyComponent={
-            <>
-              {/* 空状态 */}
-              {state === 'idle' && !showSuggestions && (
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyIconWrap}>
-                    <Feather name="search" size={48} color="#FF6B6B" />
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+          data={showSuggestions ? suggestions : (dictResult ? [dictResult] : [])}
+          keyExtractor={(item, index) => item.word + '-' + index}
+          renderItem={({ item }) => {
+            // 联想列表模式
+            if (showSuggestions) {
+              const sug = item as DictResult;
+              return (
+                <TouchableOpacity
+                  style={styles.suggestionItem}
+                  onPress={() => handleSuggestionPress(sug)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.suggestionLeft}>
+                    <Text style={styles.suggestionWord}>{sug.word}</Text>
+                    {sug.phonetic ? (
+                      <Text style={styles.suggestionPhonetic}>{sug.phonetic}</Text>
+                    ) : null}
                   </View>
-                  <Text style={styles.emptyText}>想学哪个词？随时问我。</Text>
-                  <Text style={styles.emptySubText}>输入英文单词，获取翻译、音标和地道例句</Text>
-                </View>
-              )}
+                  <Text style={styles.suggestionTrans} numberOfLines={1}>
+                    {sug.translation || sug.definition}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }
 
-              {/* 本地词典结果 */}
-              {state === 'result' && dictResult && (
+            // 词典结果模式
+            if (state === 'result' && dictResult) {
+              return (
                 <View style={styles.resultContainer}>
                   <View style={styles.sourceBadge}>
                     <Text style={styles.sourceBadgeText}>📖 本地词典</Text>
@@ -252,6 +276,22 @@ export default function SearchScreen() {
                     <Text style={styles.detailButtonText}>查看详情</Text>
                     <Feather name="arrow-right" size={18} color="#fff" />
                   </TouchableOpacity>
+                </View>
+              );
+            }
+
+            return null;
+          }}
+          ListEmptyComponent={
+            <>
+              {/* 空状态 */}
+              {state === 'idle' && !showSuggestions && (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyIconWrap}>
+                    <Feather name="search" size={48} color="#FF6B6B" />
+                  </View>
+                  <Text style={styles.emptyText}>想学哪个词？随时问我。</Text>
+                  <Text style={styles.emptySubText}>输入英文或中文，实时搜索词典</Text>
                 </View>
               )}
 
@@ -344,6 +384,7 @@ const styles = StyleSheet.create({
   suggestionWord: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
   suggestionPhonetic: { fontSize: 13, color: '#BBBBBB' },
   suggestionTrans: { fontSize: 14, color: '#BBBBBB', flexShrink: 1, maxWidth: '45%', textAlign: 'right' },
+  suggestionHighlight: { backgroundColor: '#FF6B6B', color: '#FFFFFF', borderRadius: 2 },
 
   // 内容区
   contentArea: { flex: 1 },

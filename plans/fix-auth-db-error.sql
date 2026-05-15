@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
+-- 确保 email 列存在（触发器需要写入 email）
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+
 -- ============================================================
 -- 2. 将除 id 外的所有字段改为允许为空（DROP NOT NULL）
 --    这样无论表中有哪些字段，插入时只传 id 都不会报错
@@ -34,20 +37,34 @@ END $$;
 
 -- ============================================================
 -- 3. 重写 handle_new_user 函数
---    最安全的版本：只插入 id + 默认昵称 + 默认头像 URL
---    其余字段全部不依赖
+--    安全版本：插入 id + email + 默认昵称 + 默认头像 URL
+--    使用 SECURITY DEFINER 确保可以读取 auth.users 的 email 字段
+--    SET search_path = '' 防止搜索路径注入攻击
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = ''
 AS $$
+DECLARE
+    letters TEXT := 'abcdefghijklmnopqrstuvwxyz';
+    chars   TEXT := 'abcdefghijklmnopqrstuvwxyz0123456789';
+    nickname TEXT := '';
+    i INT;
 BEGIN
-    INSERT INTO public.profiles (id, nickname, avatar_url)
+    -- 生成 8 位随机昵称
+    -- 第 1 位：必须是字母（a-z）
+    nickname := substr(letters, floor(random() * length(letters) + 1)::INT, 1);
+    -- 第 2-8 位：字母或数字（a-z0-9）
+    FOR i IN 1..7 LOOP
+        nickname := nickname || substr(chars, floor(random() * length(chars) + 1)::INT, 1);
+    END LOOP;
+
+    INSERT INTO public.profiles (id, email, nickname, avatar_url)
     VALUES (
         NEW.id,
-        -- 生成 8 位随机昵称，如 a1b2c3d4
-        substr(md5(random()::text), 1, 8),
+        NEW.email,
+        nickname,
         -- 使用 ui-avatars.com 生成基于用户 ID 的默认头像
         -- 格式：https://ui-avatars.com/api/?name=ID&background=FF6B6B&color=fff&size=200
         'https://ui-avatars.com/api/?name=' || NEW.id || '&background=FF6B6B&color=fff&size=200'

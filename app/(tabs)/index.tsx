@@ -33,6 +33,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import UserAvatar from '@/components/UserAvatar';
 import { BadgeDefinition, countUnlockedBadges, getBadgeById } from '@/services/achievementService';
 import { countMasteredWords, countStudyDays } from '@/services/studyStatsService';
 import { supabase } from '@/services/supabaseClient';
@@ -109,7 +110,8 @@ export default function HomeScreen() {
   const [vocabCount, setVocabCount] = useState(0);
   const [studyDays, setStudyDays] = useState(0);
   const [badgeCount, setBadgeCount] = useState(0);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('');
+  const [avatarType, setAvatarType] = useState<number>(0);
   const [nickname, setNickname] = useState('英语学习者');
 
   // ── 勋章解锁弹窗（队列支持） ──
@@ -182,18 +184,16 @@ export default function HomeScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      setUserId(user.id);
+
       const { data: profile } = await supabase
         .from('profiles')
-        .select('avatar_url, nickname')
+        .select('avatar_type, nickname')
         .eq('id', user.id)
         .single();
 
       if (profile) {
-        // 处理头像缓存问题：如果 URL 存在，添加时间戳后缀
-        const avatarWithCacheBuster = profile.avatar_url
-          ? profile.avatar_url + '?t=' + Date.now()
-          : null;
-        setAvatarUrl(avatarWithCacheBuster);
+        setAvatarType(profile.avatar_type || 0);
         setNickname(profile.nickname || '英语学习者');
       }
     } catch (err) {
@@ -205,9 +205,9 @@ export default function HomeScreen() {
   const loadStats = useCallback(async () => {
     try {
       const [vocabResult, daysResult, badgeResult] = await Promise.all([
-        countMasteredWords(),
-        countStudyDays(),
-        countUnlockedBadges(),
+        countMasteredWords(userId || undefined),
+        countStudyDays(userId || undefined),
+        countUnlockedBadges(userId || undefined),
       ]);
       // 直接更新状态，不显示加载提示
       setVocabCount(vocabResult);
@@ -216,7 +216,7 @@ export default function HomeScreen() {
     } catch (err) {
       console.warn('[HomeScreen] 加载统计数据失败:', err);
     }
-  }, []);
+  }, [userId]);
 
   // 每次页面获得焦点时自动刷新
   useFocusEffect(
@@ -237,8 +237,8 @@ export default function HomeScreen() {
         {/* ===== 顶部个人资料 ===== */}
         <View style={[s.profileSection, { paddingTop: insets.top + 20 }]}>
           <View style={s.avatarWrap}>
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={s.avatar} />
+            {userId && avatarType > 0 ? (
+              <UserAvatar userId={userId} avatarType={avatarType} size={88} />
             ) : (
               <View style={s.avatar}>
                 <Feather name="user" size={40} color="#fff" />
@@ -292,8 +292,8 @@ export default function HomeScreen() {
             <View style={s.divider} />
             <MenuRow
               icon="info" title="关于"
-              subtitle="MyAIEnglishApp v1.0.0" color="#888"
-              onPress={() => Alert.alert('关于', 'MyAIEnglishApp\n版本 1.0.0\n用 AI 让英语学习更有趣')}
+              subtitle="LensGo v1.0.0" color="#888"
+              onPress={() => Alert.alert('关于', 'LensGo\n版本 1.0.0\n用 AI 让英语学习更有趣')}
             />
           </View>
         </View>

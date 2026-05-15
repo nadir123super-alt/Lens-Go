@@ -69,12 +69,12 @@ export default function AchievementUnlockModal({ isVisible, badgeId, onClose }: 
   if (!badge) return null;
 
   // 根据动画进度计算图标颜色（灰色 -> 彩色）
-  const getIconStyle = () => {
+  const getIconStyle = (): { color: string } => {
     const color = iconColorAnim.interpolate({
       inputRange: [0, 1],
       outputRange: ['#666666', badge.color],
     });
-    return { color };
+    return { color: color as unknown as string };
   };
 
   return (
@@ -84,7 +84,7 @@ export default function AchievementUnlockModal({ isVisible, badgeId, onClose }: 
       animationType="fade"
       onRequestClose={onClose}
     >
-      <View style={s.overlay} onPress={onClose}>
+      <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={onClose}>
         <Animated.View
           style={[
             s.modalContent,
@@ -204,7 +204,7 @@ export default function AchievementUnlockModal({ isVisible, badgeId, onClose }: 
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
-      </View>
+      </TouchableOpacity>
     </Modal>
   );
 }

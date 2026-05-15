@@ -13,7 +13,7 @@
 import { Feather } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -30,6 +30,7 @@ import {
   BadgeDefinition,
   getAllBadgesWithRealProgress
 } from '@/services/achievementService';
+import { supabase } from '@/services/supabaseClient';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const GRID_PADDING = 20;
@@ -62,7 +63,10 @@ export default function AchievementsScreen() {
   const loadBadges = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await getAllBadgesWithRealProgress();
+      // 每次加载时直接从 auth 获取当前用户 ID，避免 state 延迟
+      const { data: { user } } = await supabase.auth.getUser();
+      const uid = user?.id || undefined;
+      const data = await getAllBadgesWithRealProgress(uid);
       setBadges(data);
     } catch (err) {
       console.warn('[Achievements] 加载勋章数据失败:', err);

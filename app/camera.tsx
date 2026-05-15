@@ -114,9 +114,9 @@ const DashedWords = ({text, style}: {text: string; style?: any}) => {
               alignItems: 'center',
               justifyContent: 'center',
               minWidth: 20,
-              paddingBottom: hasBorder ? 2 : 0,
+              paddingBottom: hasBorder ? 0 : 0,
               marginRight: 10,
-              marginBottom: 12,
+              marginBottom: 8,
               ...(hasBorder && {
                 borderBottomWidth: 1.5,
                 borderStyle: 'solid',
@@ -158,6 +158,9 @@ export default function CameraScreen() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [selectedPhrases, setSelectedPhrases] = useState<PhraseItem[] | null>(null);
   const [isLoadingPhrase, setIsLoadingPhrase] = useState(false);
+  
+  // 追踪预览图片的实际显示尺寸（用于坐标校准）
+  const [imageLayout, setImageLayout] = useState({ width: 0, height: 0, offsetX: 0, offsetY: 0 });
 
   // 自动收藏反馈提示
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -228,6 +231,15 @@ export default function CameraScreen() {
         return;
       }
       detector.dispose();
+    };
+  }, []);
+
+  // ====== "退出即停"：页面卸载时自动停止所有音频 ======
+  // 防止用户开着 DetailCard 播放声音时离开页面，声音仍在后台播放
+  useEffect(() => {
+    return () => {
+      const { stopAll } = require('@/services/soundManager');
+      stopAll();
     };
   }, []);
 
@@ -311,7 +323,7 @@ export default function CameraScreen() {
             try {
               phrases = obj.phrases && obj.phrases.length > 0
                 ? obj.phrases.map((p: PhraseItem) => ({ e: p.e, c: p.c }))
-                : await fetchPhrasesForObject(obj.l, API_KEY);
+                : await fetchPhrasesForObject(obj.l, API_KEY, false, 'camera');
             } catch {
               console.warn(`   ⚠️ 单词 "${obj.l}" AI 无法生成例句，跳过保存`);
               continue;
@@ -322,7 +334,8 @@ export default function CameraScreen() {
             }
             await autoAddVocabulary(obj.l, obj.t, phrases, 'camera', '', undefined);
             // 记录学习活动（异步，不阻塞）
-            recordLearningActivity(obj.l, 100, 'camera').catch((e) =>
+            // 分数设为 0，因为还没有进行口语练习；分数会在口语练习后更新，取最高分
+            recordLearningActivity(obj.l, 0, 'camera').catch((e) =>
               console.warn(`   ⚠️ 记录学习活动失败: ${obj.l}`, e)
             );
           } catch (objError) {
@@ -455,7 +468,8 @@ export default function CameraScreen() {
               console.log('ℹ️ 后台跳过（重复词）:', wordForSave);
             }
             // 记录学习活动（异步，不阻塞）
-            recordLearningActivity(wordForSave, 100, 'camera').catch((e: any) =>
+            // 分数设为 0，因为还没有进行口语练习；分数会在口语练习后更新，取最高分
+            recordLearningActivity(wordForSave, 0, 'camera').catch((e: any) =>
               console.warn(`   ⚠️ 记录学习活动失败: ${wordForSave}`, e)
             );
             // 检查勋章解锁（拍照相关）
@@ -530,7 +544,7 @@ export default function CameraScreen() {
         setSaveMsg('❌ 存储写入失败，请检查磁盘空间');
         setSaveMsgType('error');
         try {
-          const phrases = await fetchPhrasesForObject(point.l, API_KEY);
+          const phrases = await fetchPhrasesForObject(point.l, API_KEY, false, 'camera');
           if (requestId === globalRequestId) setSelectedPhrases(phrases);
         } catch {
           if (requestId === globalRequestId) setSelectedPhrases([]);
@@ -568,7 +582,7 @@ export default function CameraScreen() {
 
       const requestId = ++globalRequestId;
       try {
-        const phrases = await fetchPhrasesForObject(obj.l, API_KEY);
+        const phrases = await fetchPhrasesForObject(obj.l, API_KEY, false, 'camera');
         if (requestId !== globalRequestId) return;
         if (aiData) {
           const updated = [...aiData.objects];
@@ -588,7 +602,8 @@ export default function CameraScreen() {
   // ====== 自动 TTS ======
   const handleSpeakWord = useCallback((text: string) => {
     const { playText } = require('@/services/soundManager');
-    playText(text);
+    // 传入 word 参数以追踪该单词的发音点击次数（用于"念念不忘"勋章）
+    playText(text, undefined, undefined, text);
   }, []);
 
   useEffect(() => {
@@ -685,7 +700,14 @@ export default function CameraScreen() {
     bottom: 100,
   };
   useEffect(() => {
-    if (selectedIndex !== null && aiData?.objects[selectedIndex]?.y > NO_TARGET_ZONE.top) {
+    if (
+      selectedIndex !== null &&
+      aiData &&
+      selectedIndex >= 0 &&
+      selectedIndex < aiData.objects.length &&
+      aiData.objects[selectedIndex]?.y != null &&
+      aiData.objects[selectedIndex]!.y > NO_TARGET_ZONE.top
+    ) {
       setSelectedIndex(null);
       setSelectedPhrases(null);
       setSelectedId(null);
@@ -737,6 +759,7 @@ export default function CameraScreen() {
   const visibleAnchorObjects = aiData?.objects
     .map((obj, idx) => ({ obj, idx }))
     .filter(({ obj }) => obj.y <= NO_TARGET_ZONE.top) ?? [];
+
 
   const onPinchGestureEvent = (event: any) => {
     const scale = event.nativeEvent.scale;
@@ -826,7 +849,12 @@ export default function CameraScreen() {
               phrases={selectedPhrases}
               isLoading={isLoadingPhrase}
               onSpeak={handleSpeakWord}
-              onClose={() => { setSelectedId(null); setSelectedPhrases(null); }}
+              onClose={() => {
+                setSelectedId(null);
+                setSelectedPhrases(null);
+                const { stopAll } = require('@/services/soundManager');
+                stopAll();
+              }}
             />
           )}
         </>
@@ -834,8 +862,17 @@ export default function CameraScreen() {
         <View style={styles.previewContainer}>
           {/* ====== 上方：图片展示区 ====== */}
           <View style={styles.previewImageArea}>
-            <View style={styles.imageWrapper}>
-              {photo && <Image source={{ uri: photo }} style={styles.previewImage} />}
+            <View style={styles.imageWrapper} onLayout={(e) => {
+              const { width, height, x, y } = e.nativeEvent.layout;
+              setImageLayout({ width, height, offsetX: x, offsetY: y });
+            }}>
+              {photo && (
+                <Image
+                  source={{ uri: photo }}
+                  style={styles.previewImage}
+                  resizeMode="contain"
+                />
+              )}
               {visibleAnchorObjects.map(({ obj, idx }) => (
                 <AnchorPointComponent
                   key={`${obj.l}-${idx}`}
@@ -843,6 +880,7 @@ export default function CameraScreen() {
                   isSelected={selectedIndex === idx}
                   isLoadingPhrase={isLoadingPhrase && selectedIndex === idx}
                   onPress={() => handleAnchorPress(obj, idx)}
+                  imageLayout={imageLayout}
                 />
               ))}
             </View>
@@ -880,7 +918,12 @@ export default function CameraScreen() {
               phrases={selectedPhrases}
               isLoading={isLoadingPhrase}
               onSpeak={handleSpeakWord}
-              onClose={() => { setSelectedIndex(null); setSelectedPhrases(null); }}
+              onClose={() => {
+                setSelectedIndex(null);
+                setSelectedPhrases(null);
+                const { stopAll } = require('@/services/soundManager');
+                stopAll();
+              }}
             />
           )}
         </View>
@@ -1077,11 +1120,13 @@ function AnchorPointComponent({
   isSelected,
   isLoadingPhrase,
   onPress,
+  imageLayout,
 }: {
   obj: AiObject;
   isSelected: boolean;
   isLoadingPhrase: boolean;
   onPress: () => void;
+  imageLayout: { width: number; height: number; offsetX: number; offsetY: number };
 }) {
   const dotSize = obj.size === 'S' ? 8 : 16;
   const scaleAnim = useRef(new Animated.Value(isSelected ? 1.5 : 1)).current;
@@ -1120,12 +1165,73 @@ function AnchorPointComponent({
   const dotBgColor = isSelected ? YELLOW_LEARN : ANCHOR_COLOR;
   const showTooltipAbove = obj.y > 15;
 
+  // 基于实际图片尺寸计算坐标位置
+  // obj.x 和 obj.y 是 0-100 的百分比，需要转换为实际像素位置
+  //
+  // ⚠️ 关键修正：图片使用 resizeMode="contain"，实际显示区域可能小于容器
+  // 需要计算图片在容器内的实际显示 rect（考虑 letterboxing），
+  // 然后基于实际图片显示区域进行坐标映射。
+  const dotPositionStyle = (() => {
+    if (imageLayout.width > 0 && imageLayout.height > 0) {
+      // 计算图片在 contain 模式下的实际显示尺寸
+      // 假设原始图片宽高比 = 4:3（相机默认 ratio），但实际可能不同
+      // 使用容器宽高比与图片宽高比对比，确定 letterboxing 方向
+      const containerAspect = imageLayout.width / imageLayout.height;
+      // 相机拍摄的图片通常是 4:3，但 AI 分析时图片被压缩到 800px 宽（见 handleTakePicture）
+      // 压缩后的图片宽高比保持原始比例，通常是 4:3
+      // 使用 4:3 作为默认图片宽高比
+      const imageAspect = 4 / 3;
+
+      let displayWidth: number;
+      let displayHeight: number;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      if (containerAspect > imageAspect) {
+        // 容器更宽 → 上下有黑边（letterboxing）
+        displayHeight = imageLayout.height;
+        displayWidth = displayHeight * imageAspect;
+        offsetX = (imageLayout.width - displayWidth) / 2;
+        offsetY = 0;
+      } else {
+        // 容器更高 → 左右有黑边（pillarboxing）
+        displayWidth = imageLayout.width;
+        displayHeight = displayWidth / imageAspect;
+        offsetX = 0;
+        offsetY = (imageLayout.height - displayHeight) / 2;
+      }
+
+      // 将 AI 返回的百分比坐标映射到实际图片显示区域
+      const left = Math.round((obj.x / 100) * displayWidth + offsetX);
+      const top = Math.round((obj.y / 100) * displayHeight + offsetY);
+
+      return {
+        position: 'absolute' as const,
+        left,
+        top,
+        width: dotSize,
+        height: dotSize,
+        marginLeft: -dotSize / 2,
+        marginTop: -dotSize / 2,
+      };
+    }
+    // 回退到百分比定位（图片尺寸未加载时）
+    return {
+      position: 'absolute' as const,
+      left: `${obj.x}%`,
+      top: `${obj.y}%`,
+      width: dotSize,
+      height: dotSize,
+      marginLeft: -dotSize / 2,
+      marginTop: -dotSize / 2,
+    };
+  })() as any;
+
   return (
     <View
       style={[
         styles.anchorWrapper,
-        { left: `${obj.x}%`, top: `${obj.y}%`, width: dotSize, height: dotSize,
-          transform: [{ translateX: -dotSize / 2 }, { translateY: -dotSize / 2 }] },
+        dotPositionStyle,
       ]}>
       <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
         <View
@@ -1163,7 +1269,7 @@ const styles = StyleSheet.create({
   previewContainer: { flex: 1, backgroundColor: '#000' },
   previewImageArea: { flex: 1, position: 'relative' },
   imageWrapper: { flex: 1, position: 'relative' },
-  previewImage: { ...StyleSheet.absoluteFillObject, resizeMode: 'cover' },
+  previewImage: { flex: 1, width: '100%', height: '100%', resizeMode: 'contain' },
   previewControlsBar: {
     backgroundColor: '#000000',
     paddingTop: 16,

@@ -12,28 +12,28 @@ import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-    disableReminder,
-    enableReminder,
-    loadReminderSettings,
-    openAppSettings
+  disableReminder,
+  enableReminder,
+  loadReminderSettings,
+  openAppSettings
 } from '@/services/reminderService';
 import {
-    loadSpeechRate,
-    MAX_SPEECH_RATE,
-    MIN_SPEECH_RATE,
-    saveSpeechRate,
-    SPEECH_RATE_STEP,
+  loadSpeechRate,
+  MAX_SPEECH_RATE,
+  MIN_SPEECH_RATE,
+  saveSpeechRate,
+  SPEECH_RATE_STEP,
 } from '@/services/speechSettingsService';
 
 const ANCHOR_COLOR = '#FF6B6B';
@@ -385,26 +385,34 @@ export default function SettingsScreen() {
 
   const handleReminderToggle = useCallback(
     async (enabled: boolean) => {
-      if (enabled) {
-        const result = await enableReminder(reminderHour, reminderMinute);
-        
-        if (result.needSettings) {
-          Alert.alert(
-            '通知权限已关闭',
-            '系统通知权限已被拒绝，当前仅使用日历提醒。如需完整功能，请在系统设置中开启通知权限。',
-            [
-              { text: '我知道了', style: 'cancel' },
-              { text: '去设置', onPress: openAppSettings }
-            ]
-          );
+      // 状态先行：立即改变前端 Switch 状态，消除视觉延迟
+      setReminderEnabled(enabled);
+      
+      // 后台异步发送请求，不阻塞 UI
+      try {
+        if (enabled) {
+          const result = await enableReminder(reminderHour, reminderMinute);
+          
+          if (result.needSettings) {
+            Alert.alert(
+              '通知权限已关闭',
+              '系统通知权限已被拒绝，当前仅使用日历提醒。如需完整功能，请在系统设置中开启通知权限。',
+              [
+                { text: '我知道了', style: 'cancel' },
+                { text: '去设置', onPress: openAppSettings }
+              ]
+            );
+          }
+          
+          console.log('[Settings] 每日提醒已开启');
+        } else {
+          await disableReminder();
+          console.log('[Settings] 每日提醒已关闭');
         }
-        
-        setReminderEnabled(true);
-        console.log('[Settings] 每日提醒已开启');
-      } else {
-        await disableReminder();
-        setReminderEnabled(false);
-        console.log('[Settings] 每日提醒已关闭');
+      } catch (err) {
+        console.error('[Settings] 提醒切换失败:', err);
+        // 如果请求失败，回滚状态
+        setReminderEnabled(!enabled);
       }
     },
     [reminderHour, reminderMinute]
@@ -430,7 +438,7 @@ export default function SettingsScreen() {
     [reminderEnabled, reminderHour]
   );
 
-  const getPageConfig = () => {
+  const getPageConfig = (): { title: string; icon: keyof typeof Feather.glyphMap } => {
     if (pageType === 'voice') {
       return { title: '语音偏好', icon: 'volume-2' };
     } else {
@@ -443,8 +451,8 @@ export default function SettingsScreen() {
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
       <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-          <Feather name="arrow-left" size={22} color="#FFFFFF" />
+        <TouchableOpacity onPress={() => router.back()} style={s.backBtn} activeOpacity={0.7}>
+          <Feather name="arrow-left" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Feather name={pageConfig.icon} size={22} color="#FF6B6B" />
         <Text style={s.headerTitle}>{pageConfig.title}</Text>
@@ -488,7 +496,11 @@ export default function SettingsScreen() {
             </View>
 
             <View style={s.card}>
-              <View style={s.switchRow}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => reminderLoaded && handleReminderToggle(!reminderEnabled)}
+                style={s.switchRow}
+              >
                 <View style={s.switchLabel}>
                   <Feather
                     name={reminderEnabled ? 'bell' : 'bell-off'}
@@ -508,7 +520,7 @@ export default function SettingsScreen() {
                     ios_backgroundColor="#E0E0E0"
                   />
                 )}
-              </View>
+              </TouchableOpacity>
 
               {reminderEnabled && reminderLoaded && (
                 <View style={s.timePickerRow}>
@@ -536,10 +548,10 @@ export default function SettingsScreen() {
                 <Text style={s.tipsTitle}>温馨提示</Text>
               </View>
               <Text style={s.tipsText}>
-                • 系统通知需要在「设置 > 通知」中开启权限
+                {'• 系统通知需要在「设置 > 通知」中开启权限'}
               </Text>
               <Text style={s.tipsText}>
-                • 日历提醒需要在「设置 > 日历」中开启权限
+                {'• 日历提醒需要在「设置 > 日历」中开启权限'}
               </Text>
               <Text style={s.tipsText}>
                 • 关闭提醒后，所有已预约的通知将被取消
@@ -569,12 +581,17 @@ const s = StyleSheet.create({
     backgroundColor: '#121212',
   },
   backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -15,
     marginRight: 8,
-    padding: 4,
   },
   headerTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
     color: '#FFFFFF',
     marginLeft: 8,
   },
