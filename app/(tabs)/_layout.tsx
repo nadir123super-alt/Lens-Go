@@ -1,10 +1,11 @@
 /**
  * Tab Layout — 纯图标底部导航栏
  *
- * 五个 Tab（无文字标签）：
+ * 六个 Tab（无文字标签）：
  *   - 🏠 首页 Dashboard → index
  *   - 📷 拍照识别 → camera
  *   - 🎤 口语练习 → practice
+ *   - 🤖 AI 通话 → ai-conversation
  *   - 🔍 词典查询 → search
  *   - 📖 生词本 → vocabulary
  *
@@ -20,6 +21,7 @@
  *   用户点击"生词本"或"口语练习"Tab 时，立即触发网络请求预加载，
  *   页面组件挂载后直接消费缓存数据，无需等待请求。
  */
+import AIIcon from '@/components/AIIcon';
 import CameraIcon from '@/components/CameraIcon';
 import { HapticTab } from '@/components/haptic-tab';
 import HomeIcon from '@/components/HomeIcon';
@@ -139,7 +141,18 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Tab 3 — 词典查询（直接渲染 SearchScreen） */}
+      {/* Tab 3 — AI 通话（AI 实时口语对话） */}
+      <Tabs.Screen
+        name="ai-conversation"
+        options={{
+          tabBarLabel: 'AI 通话',
+          tabBarIcon: ({ color, focused }) => (
+            <AIIcon color={color} size={focused ? 30 : 28} focused={focused} />
+          ),
+        }}
+      />
+
+      {/* Tab 4 — 词典查询（直接渲染 SearchScreen） */}
       <Tabs.Screen
         name="search"
         options={{
@@ -149,7 +162,7 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Tab 4 — 生词本 */}
+      {/* Tab 5 — 生词本 */}
       <Tabs.Screen
         name="vocabulary"
         options={{

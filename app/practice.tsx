@@ -389,11 +389,16 @@ export default function PracticeScreen() {
     buttonDisabledRef.current = true;
     setTimeout(() => { buttonDisabledRef.current = false; }, 500);
 
+    if (!session) {
+      console.warn('[Practice] handleSkip: session 为 null，跳过');
+      return;
+    }
+
     if (phase === 'recording') await forceStopRecording();
     stopAll();
     if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; }
 
-    const updatedSession = skipCard(session!);
+    const updatedSession = skipCard(session);
     if (updatedSession.completed) {
       setSession(updatedSession);
       setTimeout(() => finalizeToSummary(), 100);

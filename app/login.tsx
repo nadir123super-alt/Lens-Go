@@ -1,5 +1,9 @@
 /**
- * LoginScreen — 登录页面
+ * LoginScreen — 登录页面（密码登录）
+ *
+ * 流程：
+ * 1. 用户输入邮箱 + 密码 → 点击"登录" → signInWithPassword 验证
+ * 2. 验证成功 → 自动创建 session → 跳转首页
  */
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -72,8 +76,8 @@ export default function LoginScreen() {
       Alert.alert('提示', '请输入密码');
       return;
     }
-    if (password.length < 6) {
-      Alert.alert('提示', '密码长度至少为 6 位');
+    if (password.length < 8) {
+      Alert.alert('提示', '密码长度至少为 8 位');
       return;
     }
 
@@ -119,14 +123,7 @@ export default function LoginScreen() {
         if (error.message === 'Invalid login credentials') {
           // 此时已确认账号存在，所以一定是密码错误
           setPassword('');
-          Alert.alert(
-            '密码错误',
-            '密码不正确，请重新输入。如果忘记密码，可以使用"忘记密码"功能重置。',
-            [
-              { text: '重新输入', style: 'cancel' },
-              { text: '忘记密码', onPress: () => handleForgotPassword() },
-            ],
-          );
+          Alert.alert('登录失败', '密码或账号错误，请重新输入');
         } else if (error.message === 'Email not confirmed') {
           Alert.alert('邮箱未验证', '请先查收验证邮件并点击确认链接，然后再登录');
         } else {
@@ -240,7 +237,7 @@ export default function LoginScreen() {
             {isSubmitting ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={s.mainBtnText}>登录</Text>
+              <Text style={s.mainBtnText}>密码登录</Text>
             )}
           </TouchableOpacity>
         </View>

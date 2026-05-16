@@ -202,12 +202,12 @@ export default function HomeScreen() {
   }, []);
 
   // 加载统计数据（词汇量 + 学习天数 + 勋章数）- 后台静默刷新
-  const loadStats = useCallback(async () => {
+  const loadStats = useCallback(async (uid: string) => {
     try {
       const [vocabResult, daysResult, badgeResult] = await Promise.all([
-        countMasteredWords(userId || undefined),
-        countStudyDays(userId || undefined),
-        countUnlockedBadges(userId || undefined),
+        countMasteredWords(uid),
+        countStudyDays(uid),
+        countUnlockedBadges(uid),
       ]);
       // 直接更新状态，不显示加载提示
       setVocabCount(vocabResult);
@@ -216,14 +216,18 @@ export default function HomeScreen() {
     } catch (err) {
       console.warn('[HomeScreen] 加载统计数据失败:', err);
     }
-  }, [userId]);
+  }, []);
 
   // 每次页面获得焦点时自动刷新
   useFocusEffect(
     useCallback(() => {
-      loadUserProfile();
-      loadStats();
-    }, [loadUserProfile, loadStats]),
+      loadUserProfile().then(() => {
+        // 等 loadUserProfile 设置好 userId 后再加载统计数据
+        if (userId) {
+          loadStats(userId);
+        }
+      });
+    }, [loadUserProfile, loadStats, userId]),
   );
 
   return (
