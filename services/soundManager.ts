@@ -7,9 +7,8 @@
  * 3. 自动回调：播放结束后调用 onDone，可用于重置状态
  *
  * 供【拍照识别】、【普通口语练习】、【AI实时通话】三个模块统一调用
+ * 使用微软 Edge TTS 提供高质量语音
  */
-import * as Speech from 'expo-speech';
-import { Platform } from 'react-native';
 import {
     getAudioPlayCompleteCount,
     getWordClickCounts,
@@ -17,11 +16,8 @@ import {
     incrementPageLocalCount,
     recordWordClick
 } from '../utils/audioCounter';
-import { getSpeechRate } from './speechSettingsService';
+import edgeTtsService from './edgeTtsService';
 import { cleanTextForSpeech } from './textCleaner';
-
-// ====== 语速基准校准 ======
-const BASE_RATE = 0.9;
 
 // ====== 音频会话强化 ======
 let _ensureAudioSession: (() => Promise<void>) | null = null;
@@ -43,45 +39,20 @@ async function ensureMaxVolumeBeforeSpeak(): Promise<void> {
 // ====== 全局状态 ======
 let currentState: {
   source: string | null;
+  stopFn: (() => void) | null;
 } = {
   source: null,
+  stopFn: null,
 };
 
 // ====== 停止所有播放 ======
 export function stopAll(): void {
   console.log('[SoundManager] stopAll()');
-  Speech.stop();
+  if (currentState.stopFn) {
+    currentState.stopFn();
+  }
   currentState.source = null;
-}
-
-// ====== 进度追踪（模拟字符级进度） ======
-let progressTimer: ReturnType<typeof setTimeout> | null = null;
-
-function startProgressTracking(
-  text: string,
-  onProgress?: (progress: number) => void,
-): void {
-  if (!onProgress) return;
-
-  const totalLength = text.length;
-  const estimatedDuration = totalLength * 100; // 估算时长
-  const interval = 50; // 50ms 更新一次
-  
-  let elapsed = 0;
-  
-  progressTimer = setInterval(() => {
-    elapsed += interval;
-    const progress = Math.min((elapsed / estimatedDuration) * totalLength, totalLength);
-    onProgress(Math.floor(progress));
-    
-    if (elapsed >= estimatedDuration) {
-      if (progressTimer) {
-        clearInterval(progressTimer);
-        progressTimer = null;
-      }
-      onProgress(totalLength);
-    }
-  }, interval) as unknown as ReturnType<typeof setTimeout>;
+  currentState.stopFn = null;
 }
 
 // ====== 主播放函数 ======
@@ -105,61 +76,53 @@ export async function playText(
     return;
   }
 
-  console.log('[SoundManager] ===== 使用 expo-speech =====');
+  console.log('[SoundManager] ===== 使用微软 Edge TTS =====');
   currentState.source = cleanedText;
-  
+
   const callback = onDone
     ? () => {
         trackAchievements(word);
         onDone();
         if (currentState?.source === cleanedText) {
           currentState.source = null;
+          currentState.stopFn = null;
         }
       }
     : undefined;
 
-  const totalLength = cleanedText.length;
-  
-  // 模拟字符级进度
-  if (onProgress) {
-    startProgressTracking(cleanedText, onProgress);
-  }
-
-  ensureMaxVolumeBeforeSpeak().then(() => {
-    const userRate = getSpeechRate();
-    const adjustedRate = userRate * BASE_RATE;
-
-    const ttsOptions: any = {
-      language: 'en',
-      rate: adjustedRate,
-      pitch: 1.0,
-      volume: 1.0,
-      onDone: () => {
-        console.log('[SoundManager] expo-speech 播放完成');
-        if (progressTimer) {
-          clearInterval(progressTimer);
-          progressTimer = null;
+  ensureMaxVolumeBeforeSpeak().then(async () => {
+    try {
+      const stopFn = await edgeTtsService.speak({
+        text: cleanedText,
+        language: 'en',
+        onStart: () => {
+          console.log('[SoundManager] Edge TTS 播放开始');
+        },
+        onDone: () => {
+          console.log('[SoundManager] Edge TTS 播放完成');
+          if (onProgress) {
+            onProgress(cleanedText.length);
+          }
+          callback?.();
+        },
+        onProgress: (charIndex: number) => {
+          if (onProgress) {
+            onProgress(charIndex);
+          }
+        },
+        onError: (error: any) => {
+          console.warn('[SoundManager] Edge TTS 播放出错:', error?.message || error);
+          currentState.source = null;
+          currentState.stopFn = null;
         }
-        if (onProgress) {
-          onProgress(totalLength);
-        }
-        callback?.();
-      },
-      onError: (error: any) => {
-        console.warn('[SoundManager] expo-speech 播放出错:', error?.message || error);
-        if (progressTimer) {
-          clearInterval(progressTimer);
-          progressTimer = null;
-        }
-        currentState.source = null;
-      },
-    };
-
-    if (Platform.OS === 'ios') {
-      ttsOptions.useApplicationAudioSession = false;
+      });
+      
+      currentState.stopFn = stopFn;
+    } catch (error: any) {
+      console.warn('[SoundManager] Edge TTS 播放出错:', error?.message || error);
+      currentState.source = null;
+      currentState.stopFn = null;
     }
-
-    Speech.speak(cleanedText, ttsOptions);
   });
 }
 
@@ -219,5 +182,5 @@ export function isPlaying(): boolean {
 // ====== 获取当前播放信息 ======
 export function getCurrentInfo(): string | null {
   if (!currentState.source) return null;
-  return `expo-speech: "${currentState.source.substring(0, 30)}..."`;
+  return `Edge TTS: "${currentState.source.substring(0, 30)}..."`;
 }

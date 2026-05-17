@@ -132,15 +132,15 @@ export async function analyzeCroppedPatch(croppedBase64, apiKey) {
         {
           type: 'text',
           text:
-            '你是一名专业的英语老师。针对这张图片中的物体，请：\n' +
+            '你是一个专业的英语老师。针对这张图片中的物体，请：\n' +
             '1. 给出最精准的英文单词\n' +
             '2. 中文翻译\n' +
             '3. 针对该物体生成 2 句自然、地道、多样化的英语口语例句。\n' +
             '⚠️ 重要：严禁使用 "I see a..."、"I found a..." 这样的简单句式。例句必须是真实场景对话，如询问、描述、感叹、建议等不同语气。\n' +
-            '⚠️ 关键约束：每个 en 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 en 字段中。\n' +
-            '⚠️ 每个 cn 字段也必须且只能包含一个完整的中文句子。\n' +
+            '⚠️ 关键约束：每个 en 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 en 字段中，只能有一个句号或感叹号或问号。\n' +
+            '⚠️ 每个 cn 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n' +
             '你必须且只能返回如下固定 JSON 格式（不要任何 Markdown 标记或额外文字）：\n' +
-            '{"word":"lamp","translation":"台灯","examples":[{"en":"Could you turn on the lamp? It\'s getting dark.","cn":"你能把台灯打开吗？天黑了。"},{"en":"This lamp gives such a warm and cozy glow.","cn":"这盏灯发出温暖舒适的光。"}]}\n' +
+            '{"word":"lamp","translation":"台灯","examples":[{"en":"Could you turn on the lamp?","cn":"你能把台灯打开吗？"},{"en":"This lamp gives such a warm and cozy glow.","cn":"这盏灯发出温暖舒适的光。"}]}\n' +
             '请确保 JSON 结构完整，必须以 } 结尾。\n' +
             '如果 AI 无法生成完整内容，宁可不返回结果，也不要使用 "I see a" 这类模板例句。',
         },
@@ -250,7 +250,7 @@ export async function analyzeImage(imageUri, apiKey) {
   // 1. 将图片转为 Base64
   const base64Image = await imageToBase64(imageUri);
 
-  // 2. 构造消息内容（精简 Prompt，只请求必要字段）
+  // 2. 构造消息内容（更灵活的 Prompt，不硬性要求数量）
   const messages = [
     {
       role: 'user',
@@ -258,7 +258,7 @@ export async function analyzeImage(imageUri, apiKey) {
         {
           type: 'text',
           text:
-            '你是一个精细的视觉分析专家。请深度扫描图片，识别出 10 个物体。\n' +
+            '你是一个精细的视觉分析专家。请深度扫描图片，尽可能多地识别出可见的物体（最多 10 个，最少可以是 0 个）。\n' +
             '除了大型物体，请务必识别细小物品和局部细节，例如：插头、线缆、书脊、键盘上的按键区域、瓶盖、屏幕上的图标、甚至是墙上的开关。\n' +
             '尽可能分散地寻找物体，不要只挤在图片中心，要覆盖到图片的边缘区域。\n' +
             '请重新校准坐标系。x 和 y 必须是你识别到的物体在图片中的几何物理中心，严禁胡乱分布坐标。所有物体的 x, y 坐标必须严格对应其几何中心，确保锚点能精准落在物体正上方，误差不要超过 2%。\n' +
@@ -270,6 +270,7 @@ export async function analyzeImage(imageUri, apiKey) {
             '  size = 大物体返回 "L"（large），小物体返回 "S"（small）\n' +
             '暂时不要生成例句，只返回物体名称和坐标。\n' +
             'intro 字段必须且只能使用英文，一句自然的英文寒暄开场白。\n' +
+            '如果图片中没有可见物体或识别不到任何物体，请返回空的 objects 数组。\n' +
             '必须且只能返回 JSON，结构如下（不要包含任何 Markdown 标记或额外解释）：\n' +
             '{"intro":"英文开场白","objects":[{"l":"lamp","t":"台灯","x":50,"y":30,"size":"L"}]}\n' +
             '请确保 JSON 结构完整，必须以 } 结尾。',
@@ -338,11 +339,23 @@ export async function analyzeImage(imageUri, apiKey) {
   try {
     const parsed = safeParseJson(jsonString);
 
-    // 验证返回结构
+    // 验证返回结构（更灵活）
     if (!parsed.intro || !Array.isArray(parsed.objects)) {
       throw new Error('返回数据格式不符合预期：缺少 intro 或 objects 字段');
     }
-    return parsed;
+
+    // 确保 objects 中的每个对象都是有效的
+    const validObjects = parsed.objects.filter(obj => {
+      return obj && typeof obj.l === 'string' && typeof obj.t === 'string' &&
+        typeof obj.x === 'number' && typeof obj.y === 'number' &&
+        (obj.size === 'L' || obj.size === 'S');
+    });
+
+    // 返回有效的数据（即使 objects 为空也可以）
+    return {
+      intro: parsed.intro,
+      objects: validObjects
+    };
   } catch (parseError) {
     console.error('=== AI 返回的原始内容 ===');
     console.error(content);
@@ -374,7 +387,7 @@ import { fetchWordFromBank, upsertWordToBank } from './wordBankService';
  * @param {'search' | 'camera'} [source='search'] - 来源类型，决定使用哪个词库
  * @returns {Promise<Array<{e: string, c: string}>>} 例句数组
  */
-export async function fetchPhrasesForObject(label, apiKey, skipCache = false, source = 'search') {
+export async function fetchPhrasesForObject(label, apiKey, skipCache = false, source = 'search', translation = null) {
   if (!label || !apiKey) {
     throw new Error('缺少必要参数 label 或 apiKey');
   }
@@ -405,12 +418,13 @@ export async function fetchPhrasesForObject(label, apiKey, skipCache = false, so
       
       // AI 生成成功后，异步存入对应词库
       if (!skipCache && phrases.length >= 2) {
+        // 使用传入的 translation（如果有），否则用 null
         upsertWordToBank(
-          label, 
-          null, 
-          phrases[0].e, 
-          phrases[0].c, 
-          phrases[1].e, 
+          label,
+          translation,
+          phrases[0].e,
+          phrases[0].c,
+          phrases[1].e,
           phrases[1].c,
           bankTableName
         ).catch(() => {});
@@ -453,8 +467,8 @@ async function generatePhrasesWithAI(label, apiKey) {
             `关键要求：生成的中文翻译必须根据语义词组使用空格进行分隔。例如：不要输出'他正在吃苹果'，必须输出'他 正在 吃 苹果'。\n` +
             `在生成中文翻译时，请按自然的语义词组（而不是单个汉字）进行空格分隔。例如：输出'煎鱼 的 时候 记得 打开 抽油烟机'，而不是'煎 鱼 的 时 候...'。\n` +
             `确保专有名词（如'抽油烟机'、'冰箱'）作为一个整体词块，中间不要加空格。\n` +
-            `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中。\n` +
-            `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子。\n` +
+            `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中，只能有一个句号或感叹号或问号。\n` +
+            `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
             `必须且只能返回 JSON 格式数据，结构如下（不要 Markdown 标记）：\n` +
             `{"phrases":[{"e":"英文例句1","c":"中文翻译1"},{"e":"英文例句2","c":"中文翻译2"}]}\n` +
             `请确保 JSON 结构完整，必须以 } 结尾。`,
@@ -549,6 +563,8 @@ export async function searchWordDefinition(word, apiKey) {
             `2. 词性及详细用法说明\n` +
             `3. 3个不同语境下的地道例句\n` +
             `使用极简字段名：l 表示英文名，t 表示中文翻译，pos 表示词性，usage 表示用法说明，examples 为例句数组（每个例句 e 表示英文，c 表示中文）。\n` +
+            `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中，只能有一个句号或感叹号或问号。\n` +
+            `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
             `必须且只能返回纯 JSON（不要 Markdown 标记），结构如下：\n` +
             `{"l":"${word}","t":"翻译","pos":"词性","usage":"用法说明","examples":[{"e":"例句1","c":"翻译1"},{"e":"例句2","c":"翻译2"},{"e":"例句3","c":"翻译3"}]}\n` +
             `请确保 JSON 结构完整，必须以 } 结尾。`,
@@ -856,6 +872,8 @@ async function callAiForWordDetails(word, apiKey) {
             `1. 中文翻译（definition）\n` +
             `2. 两个不同语境的地道英语口语例句，每个例句附带中文翻译\n` +
             `⚠️ 重要：严禁使用 "I see a..."、"I found a..." 这样的简单句式。例句必须是真实场景对话，如询问、描述、感叹、建议等不同语气。\n` +
+            `⚠️ 关键约束：每个英文例句必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个英文例句中，只能有一个句号或感叹号或问号。\n` +
+            `⚠️ 每个中文翻译也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
             `⚠️ 重要：You MUST return exactly 2 example sentences for each word in JSON format. If you cannot provide them, return an error instead of an empty field.（你必须为每个单词返回准确的 2 个例句。如果无法提供，请返回错误而不是空字段。）\n` +
             `必须返回纯 JSON 格式（不要任何 Markdown 标记或额外文字）：\n` +
             `{\n` +

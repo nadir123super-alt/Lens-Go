@@ -24,13 +24,32 @@ export const SPEECH_RATE_STEP = 0.1;
 
 /** 当前语速的内存缓存 */
 let _cachedSpeechRate: number = DEFAULT_SPEECH_RATE;
+/** AI 通话模块的临时语速覆盖（为 null 时使用全局语速） */
+let _aiConversationRateOverride: number | null = null;
 
 /**
  * 获取当前语速（内存缓存，极快）
  * 适用于 TTS 发音时的实时读取
  */
 export function getSpeechRate(): number {
+  // 如果 AI 通话模块设置了临时语速覆盖，优先使用
+  if (_aiConversationRateOverride !== null) {
+    return _aiConversationRateOverride;
+  }
   return _cachedSpeechRate;
+}
+
+/**
+ * 设置 AI 通话模块的临时语速覆盖
+ * 只影响 AI 通话模块的 TTS 朗读，不影响其他模块
+ * @param rate 语速值 (0.5 ~ 2.0)，传 null 恢复全局语速
+ */
+export function setAiConversationRate(rate: number | null): void {
+  if (rate === null) {
+    _aiConversationRateOverride = null;
+  } else {
+    _aiConversationRateOverride = Math.min(MAX_SPEECH_RATE, Math.max(MIN_SPEECH_RATE, rate));
+  }
 }
 
 /**

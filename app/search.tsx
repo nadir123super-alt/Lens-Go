@@ -21,20 +21,20 @@
  *   - AI 扩展查询选项
  */
 import { DictResult, exactMatch, fuzzySearch } from '@/services/dictionaryService';
+import edgeTtsService from '@/services/edgeTtsService';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import * as Speech from 'expo-speech';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    FlatList,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -163,7 +163,7 @@ export default function SearchScreen() {
 
   // ── 发音 ──
   const handleSpeak = useCallback((text: string) => {
-    Speech.speak(text, { language: 'en', rate: 0.9, pitch: 1.0 });
+    edgeTtsService.speak({ text, language: 'en' });
   }, []);
 
   return (

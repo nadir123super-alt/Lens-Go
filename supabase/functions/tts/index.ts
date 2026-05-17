@@ -1,5 +1,6 @@
+
 // @ts-nocheck - This is a Deno/Supabase Edge Function, not part of the frontend
-import { EdgeTTS } from 'npm:@andresaya/edge-tts@1.6.2';
+import { EdgeTts } from './edgeTts.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,6 +10,16 @@ const corsHeaders = {
 
 // 音频输出格式常量
 const OUTPUT_FORMAT = 'audio-24khz-96kbitrate-mono-mp3';
+
+// 转换 Uint8Array 为 base64
+function uint8ArrayToBase64(arr: Uint8Array): string {
+  let binary = '';
+  const len = arr.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(arr[i]);
+  }
+  return btoa(binary);
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -23,104 +34,42 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { text, voice, rate, pitch } = await req.json();
+    const { text, voice, rate, pitch, ssml, language } = await req.json();
 
-    if (!text) {
-      return new Response(JSON.stringify({ error: 'Text is required' }), {
+    if (!ssml && !text) {
+      return new Response(JSON.stringify({ error: 'Text or SSML is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log(`[TTS] Synthesizing: ${voice || 'default'} - "${text.substring(0, 50)}..."`);
+    console.log(`[TTS] Synthesizing with SSML: ${!!ssml} - "${(text || '').substring(0, 50)}..."`);
 
-    const tts = new EdgeTTS();
+    const tts = new EdgeTts();
 
-    // 合成音频，明确指定输出格式
-    await tts.synthesize(text, voice || 'en-US-EmmaMultilingualNeural', {
-      rate: rate || '-8%',
-      pitch: pitch || '+2Hz',
-      volume: '+0%',
-      outputFormat: OUTPUT_FORMAT,
-    });
+    // 使用 SSML 或构建默认 SSML
+    let finalSsml = ssml;
+    if (!finalSsml) {
+      const isChinese = (voice || '').includes('zh-CN') || language === 'zh';
+      const xmlLang = isChinese ? 'zh-CN' : 'en-US';
+      finalSsml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="${xmlLang}">
+        <voice name="${voice || 'en-US-EmmaMultilingualNeural'}">
+          <prosody rate="${rate || '-8%'}" pitch="${pitch || '+2Hz'}">
+            ${text}
+          </prosody>
+        </voice>
+      </speak>`;
+    }
 
-    // 优先使用 toBase64() 直接获取 base64 字符串
-    let audioBase64: string | null = null;
-    let methodUsed = '';
+    console.log(`[TTS] Final SSML: ${finalSsml.substring(0, 200)}...`);
+
+    // 合成音频
+    const audioData = await tts.synthesizeSsml(finalSsml, OUTPUT_FORMAT);
     
-    // 方法 1: 优先使用 toBase64()
-    try {
-      if (typeof tts.toBase64 === 'function') {
-        audioBase64 = await tts.toBase64();
-        methodUsed = 'toBase64()';
-        console.log(`[TTS] ${methodUsed} 成功: ${audioBase64?.length || 0} 字符`);
-      }
-    } catch (e) {
-      console.warn(`[TTS] ${methodUsed} 失败:`, e);
-    }
+    // 转换为 base64
+    const audioBase64 = uint8ArrayToBase64(audioData);
 
-    // 方法 2: 如果 toBase64() 失败，使用 toRaw() 然后编码
-    if (!audioBase64) {
-      try {
-        if (typeof tts.toRaw === 'function') {
-          const audioBuffer = await tts.toRaw();
-          // 转换为 base64
-          let binary = '';
-          const bytes = new Uint8Array(audioBuffer);
-          for (let i = 0; i < bytes.byteLength; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          audioBase64 = btoa(binary);
-          methodUsed = 'toRaw() + btoa()';
-          console.log(`[TTS] ${methodUsed} 成功: ${audioBase64.length} 字符`);
-        }
-      } catch (e) {
-        console.warn(`[TTS] ${methodUsed} 失败:`, e);
-      }
-    }
-
-    // 方法 3: 如果以上都失败，尝试直接访问 audio_stream
-    if (!audioBase64) {
-      try {
-        const ttsAny = tts as any;
-        if (ttsAny.audio_stream && Array.isArray(ttsAny.audio_stream)) {
-          const chunks = ttsAny.audio_stream as Uint8Array[];
-          const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-          const audioBuffer = new Uint8Array(totalLength);
-          let offset = 0;
-          for (const chunk of chunks) {
-            audioBuffer.set(chunk, offset);
-            offset += chunk.length;
-          }
-          // 转换为 base64
-          let binary = '';
-          for (let i = 0; i < audioBuffer.byteLength; i++) {
-            binary += String.fromCharCode(audioBuffer[i]);
-          }
-          audioBase64 = btoa(binary);
-          methodUsed = 'audio_stream + btoa()';
-          console.log(`[TTS] ${methodUsed} 成功: ${audioBase64.length} 字符`);
-        }
-      } catch (e) {
-        console.warn('[TTS] audio_stream 失败:', e);
-      }
-    }
-
-    // 最终检查
-    if (!audioBase64 || audioBase64.length === 0) {
-      console.error('[TTS] 所有获取音频数据的方法都失败了');
-      console.log('[TTS] tts 对象方法:', Object.getOwnPropertyNames(Object.getPrototypeOf(tts)));
-      
-      return new Response(JSON.stringify({ 
-        error: 'No audio data generated',
-        debug: '请检查 Edge Function 日志以获取更多信息'
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    console.log(`[TTS] 生成音频成功: ${audioBase64.length} 字符 (使用 ${methodUsed})`);
+    console.log(`[TTS] 生成音频成功: ${audioBase64.length} 字符`);
 
     // 返回 JSON 格式的响应，包含 base64 音频数据
     return new Response(JSON.stringify({

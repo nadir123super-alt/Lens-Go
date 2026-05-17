@@ -118,3 +118,49 @@ export async function getOralMessages(sessionId: string): Promise<OralMessage[]>
     return [];
   }
 }
+
+export async function deleteOralSession(sessionId: string): Promise<boolean> {
+  try {
+    // oral_messages 有 ON DELETE CASCADE，删除 session 自动级联删除 messages
+    const { error: sessionError } = await supabase
+      .from('oral_sessions')
+      .delete()
+      .eq('id', sessionId);
+
+    if (sessionError) {
+      console.error('[OralHistory] 删除会话失败:', sessionError);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('[OralHistory] 删除会话异常:', error);
+    return false;
+  }
+}
+
+export async function clearAllOralSessions(): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      console.warn('[OralHistory] 用户未登录，无法清空记录');
+      return false;
+    }
+
+    // oral_messages 有 ON DELETE CASCADE，删除 sessions 会自动级联删除 messages
+    const { error: sessionError } = await supabase
+      .from('oral_sessions')
+      .delete()
+      .eq('user_id', user.id);
+
+    if (sessionError) {
+      console.error('[OralHistory] 清空会话失败:', sessionError);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('[OralHistory] 清空会话异常:', error);
+    return false;
+  }
+}

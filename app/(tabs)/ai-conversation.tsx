@@ -1,17 +1,17 @@
 /**
- * AI 实时口语通话模块 (Step 2 & 3 — 腾讯云 ASR + 硅基流动 LLM + 系统 TTS 闭环)
+ * AI 实时口语通话模块 (Step 2 & 3 — 腾讯云 ASR + 智谱 GLM-4-Flash + Edge TTS 闭环)
  *
  * 功能：
  * - 沉浸式深色通话界面
  * - 状态机管理：idle → speaking(开场白) → listening → thinking → speaking(AI回复)
- * - 2分钟无声自动挂断计时器
+ * - 1分钟无声自动挂断计时器
  * - 手动挂断按钮
  * - 实时音量波形动画（绑定真实麦克风音量）
  * - VAD 静音检测自动断句（1.5~2秒静音触发）
  * - 状态锁：thinking/speaking 时阻断 VAD
- * - 腾讯云 ASR 语音转写（STT）
- * - 硅基流动 Qwen2.5-72B-Instruct LLM 中英混说智能纠错
- * - 系统原生 TTS（expo-speech）播放 AI 回复，onDone 回调自动重启录音
+ * - 腾讯云 ASR 语音转写（STT），回退讯飞 IAT
+ * - 智谱 GLM-4-Flash LLM 中英混说智能纠错（免费模型）
+ * - Edge TTS 播放 AI 回复（带情感/语调），onDone 回调自动重启录音
  * - 防回音状态锁：TTS 播放期间完全阻断麦克风和 VAD
  * - 通话历史记录功能
  */
@@ -20,15 +20,14 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Animated,
-    Easing,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Animated,
+  Easing,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AchievementUnlockModal from '../../components/AchievementUnlockModal';
@@ -36,6 +35,7 @@ import { useGlobalSpeech } from '../../hooks/useGlobalSpeech';
 import { checkOralAchievements } from '../../services/achievementService';
 import { ConversationMessage, getAiReply, transcribeAudio } from '../../services/aiConversationService';
 import { saveOralSession } from '../../services/oralHistoryService';
+import { setAiConversationRate } from '../../services/speechSettingsService';
 import { logStudyDate } from '../../services/studyStatsService';
 type CallStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -44,11 +44,18 @@ interface Message {
   text: string;
 }
 
-// ====== 开场白库 ======
+// ====== 开场白库（简短、多样） ======
 const OPENING_LINES = [
-  "Hey! I've been waiting to chat with you. How's everything going?",
-  "Hi there! Ready to practice some English? What's on your mind today?",
-  "Hello! Let's talk about your day. Did anything interesting happen?",
+  "Hey! How's your day going?",
+  "Hi there! What do you want to talk about today?",
+  "Hello! I'm glad to chat with you. What's new?",
+  "Hey! What have you been up to lately?",
+  "Hi! Let's have a fun chat. Any plans for today?",
+  "Hello there! How are you feeling right now?",
+  "Hey! I was just thinking about you. What's on your mind?",
+  "Hi! Ready for a quick chat? I'm all ears.",
+  "Hey! Tell me something interesting that happened recently.",
+  "Hi! Let's practice together. What would you like to say?",
 ];
 
 function getRandomOpening(): string {
@@ -56,7 +63,7 @@ function getRandomOpening(): string {
 }
 
 // ====== 常量 ======
-const INACTIVITY_TIMEOUT_MS = 120_000; // 2 分钟
+const INACTIVITY_TIMEOUT_MS = 60_000; // 1 分钟
 const VAD_SILENCE_THRESHOLD_DB = -50; // 静音阈值 (dBFS)，高于此值视为有人说话
 const VAD_SILENCE_TIMEOUT_MS = 1800;  // 静音持续 1.8 秒触发断句
 const METERING_INTERVAL_MS = 150;     // 音量采样间隔 150ms
@@ -86,6 +93,8 @@ const RECORDING_OPTIONS: Audio.RecordingOptions = {
     mimeType: 'audio/webm',
     bitsPerSecond: 128000,
   },
+  // 关键：启用音量计量！
+  isMeteringEnabled: true,
 };
 
 // ====== 主页面 ======
@@ -96,6 +105,11 @@ export default function AIConversationScreen() {
   // ── 状态 ──
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState<CallStatus>('idle');
+  // 同步 status 到 ref，供 interval/setTimeout 回调读取最新值
+  const setStatusAndRef = useCallback((newStatus: CallStatus) => {
+    setStatus(newStatus);
+    statusRef.current = newStatus;
+  }, []);
   const [messages, setMessages] = useState<Message[]>([]);
   const [aiText, setAiText] = useState('');
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(WAVEFORM_BARS).fill(0));
@@ -121,6 +135,8 @@ export default function AIConversationScreen() {
 
   // ── 状态锁 ref（防止 VAD 在 thinking/speaking 时误触发） ──
   const vadLockedRef = useRef(false);
+  // ── 状态 ref（避免闭包陷阱，供 interval 回调读取最新状态） ──
+  const statusRef = useRef<CallStatus>('idle');
 
   // ── 对话历史（用于 LLM 上下文） ──
   const conversationHistoryRef = useRef<ConversationMessage[]>([]);
@@ -128,9 +144,6 @@ export default function AIConversationScreen() {
   const totalCallDurationRef = useRef(0);
   const callDurationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const endCallRef = useRef<(() => void) | null>(null);
-
-  // ── STT/LLM 处理中标志 ──
-  const [isProcessing, setIsProcessing] = useState(false);
 
   // ====== 全局 TTS 发音管理器 ======
   const { speak: globalSpeak, stop: stopGlobalSpeech } = useGlobalSpeech();
@@ -209,7 +222,7 @@ export default function AIConversationScreen() {
     if (!isActive) return;
     inactivityTimerRef.current = setTimeout(() => {
       if (isMountedRef.current) {
-        console.log('[AIConversation] 2分钟无活动，自动挂断');
+        console.log('[AIConversation] 1分钟无活动，自动挂断');
         endCallRef.current?.();
       }
     }, INACTIVITY_TIMEOUT_MS);
@@ -259,7 +272,7 @@ export default function AIConversationScreen() {
         return;
       }
 
-      // 2. 设置音频模式
+      // 2. 设置音频模式（确保启用录音）
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -271,21 +284,22 @@ export default function AIConversationScreen() {
         playThroughEarpieceAndroid: false,
       } as any);
 
-      // 3. 创建录音
+      // 3. 创建录音，启用 metering
       const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
+      
       recordingRef.current = recording;
       isRecordingRef.current = true;
       audioUriRef.current = null;
 
-      console.log('[AIConversation] ✅ 录音已启动');
+      console.log('[AIConversation] ✅ 录音已启动，metering 已启用');
 
-      // 4. 启动音量轮询（每 150ms 采样一次）
+      // 5. 启动音量轮询（每 150ms 采样一次）
       startMetering(recording);
 
-      // 5. 重置静音计时器（开始监听 VAD）
+      // 6. 重置静音计时器（开始监听 VAD）
       resetSilenceTimer();
 
-      // 6. 重置活动计时器
+      // 7. 重置活动计时器
       resetInactivityTimer();
     } catch (err) {
       console.error('[AIConversation] 启动录音失败:', err);
@@ -338,11 +352,14 @@ export default function AIConversationScreen() {
       clearInterval(meteringTimerRef.current);
     }
 
+    console.log('[AIConversation] startMetering 已启动');
+
     meteringTimerRef.current = setInterval(async () => {
       if (!isMountedRef.current) return;
       try {
         const recStatus = await recording.getStatusAsync();
         if (!recStatus.isRecording) {
+          console.log('[AIConversation] 录音未在进行中');
           return;
         }
         const metering = (recStatus as any).metering ?? -160;
@@ -355,6 +372,11 @@ export default function AIConversationScreen() {
           normalizedVolume = Math.min(1, Math.max(0, (metering + 60) / 60));
         }
 
+        // 调试日志
+        if (normalizedVolume > 0.1) {
+          console.log(`[AIConversation] 检测到声音: metering=${metering}, normalized=${normalizedVolume.toFixed(3)}`);
+        }
+
         // 更新波形数据
         setAudioLevels((prev) => {
           const newLevels = [...prev];
@@ -365,14 +387,15 @@ export default function AIConversationScreen() {
         });
 
         // VAD 检测（仅在 listening 状态且未锁定时）
-        if (status === 'listening' && !vadLockedRef.current) {
+        // 使用 statusRef.current 而非闭包中的 status，避免闭包陷阱
+        if (statusRef.current === 'listening' && !vadLockedRef.current) {
           handleVAD(normalizedVolume);
         }
-      } catch {
-        // metering 读取失败，忽略
+      } catch (error) {
+        console.error('[AIConversation] metering 读取失败:', error);
       }
     }, METERING_INTERVAL_MS);
-  }, [status]);
+  }, []); // 不再依赖 status，使用 statusRef 读取最新值
 
   // ====== VAD 静音检测 ======
   const handleVAD = useCallback((normalizedVolume: number) => {
@@ -402,7 +425,7 @@ export default function AIConversationScreen() {
   // ====== 静音超时回调（自动断句 → STT → LLM → TTS 回复） ======
   const onSilenceTimeout = useCallback(async () => {
     if (vadLockedRef.current) return;
-    if (status !== 'listening') return;
+    if (statusRef.current !== 'listening') return;
 
     // 锁定 VAD，防止重复触发
     vadLockedRef.current = true;
@@ -418,8 +441,7 @@ export default function AIConversationScreen() {
     console.log('[AIConversation] 📁 音频文件已保存:', uri);
 
     // 2. 将状态切换为 thinking
-    setStatus('thinking');
-    setIsProcessing(true);
+    setStatusAndRef('thinking');
 
     // 3. 重置波形
     setAudioLevels(new Array(WAVEFORM_BARS).fill(0));
@@ -432,8 +454,7 @@ export default function AIConversationScreen() {
     if (!userText) {
       console.warn('[AIConversation] ⚠️ 语音转写结果为空，跳过本轮');
       // 空音频：直接重启录音
-      setIsProcessing(false);
-      setStatus('listening');
+      setStatusAndRef('listening');
       vadLockedRef.current = false;
       startRecording();
       resetInactivityTimer();
@@ -445,8 +466,8 @@ export default function AIConversationScreen() {
     // 5. 将用户消息添加到对话预览
     setMessages((prev) => [...prev, { role: 'user', text: userText }]);
 
-    // 6. LLM：获取 AI 回复（硅基流动 Qwen2.5-72B）
-    console.log('[AIConversation] 🤖 调用硅基流动 LLM 生成回复...');
+    // 6. LLM：获取 AI 回复（智谱 GLM-4-Flash）
+    console.log('[AIConversation] 🤖 调用智谱 GLM-4-Flash 生成回复...');
     const aiReply = await getAiReply(userText, conversationHistoryRef.current);
 
     console.log('[AIConversation] ✅ AI 回复:', aiReply);
@@ -458,9 +479,8 @@ export default function AIConversationScreen() {
     );
 
     // 8. 显示 AI 回复
-    setIsProcessing(false);
     setAiText(aiReply);
-    setStatus('speaking');
+    setStatusAndRef('speaking');
     setMessages((prev) => [...prev, { role: 'ai', text: aiReply }]);
     resetInactivityTimer();
 
@@ -476,13 +496,13 @@ export default function AIConversationScreen() {
 
       // 解锁 VAD（防回音状态锁解除）
       vadLockedRef.current = false;
-      setStatus('listening');
+      setStatusAndRef('listening');
 
       // 重新激活麦克风和 VAD 监听
       startRecording();
       resetInactivityTimer();
     });
-  }, [status, stopRecording, resetInactivityTimer, startRecording]);
+  }, [stopRecording, resetInactivityTimer, startRecording, globalSpeak]);
 
   // ====== 重置静音计时器 ======
   const resetSilenceTimer = useCallback(() => {
@@ -494,11 +514,13 @@ export default function AIConversationScreen() {
 
   // ====== 开始通话 ======
   const startCall = useCallback(() => {
+    // AI 通话模块使用稍慢的语速（0.9），不影响其他模块
+    setAiConversationRate(0.9);
+
     setIsActive(true);
     setMessages([]);
     setAudioLevels(new Array(WAVEFORM_BARS).fill(0));
     vadLockedRef.current = false;
-    setIsProcessing(false);
     conversationHistoryRef.current = [];
     callStartTimeRef.current = Date.now();
     totalCallDurationRef.current = 0;
@@ -512,7 +534,7 @@ export default function AIConversationScreen() {
     // 随机选开场白
     const opening = getRandomOpening();
     setAiText(opening);
-    setStatus('speaking');
+    setStatusAndRef('speaking');
     setMessages([{ role: 'ai', text: opening }]);
 
     // 将开场白加入对话历史
@@ -534,16 +556,19 @@ export default function AIConversationScreen() {
 
       // 解锁 VAD（防回音状态锁解除）
       vadLockedRef.current = false;
-      setStatus('listening');
+      setStatusAndRef('listening');
 
       // 启动录音
       startRecording();
       resetInactivityTimer();
     });
-  }, [resetInactivityTimer, startRecording]);
+  }, [resetInactivityTimer, startRecording, globalSpeak]);
 
   // ====== 结束通话 ======
   const endCall = useCallback(async () => {
+    // 恢复全局语速，不影响其他模块
+    setAiConversationRate(null);
+
     clearInactivityTimer();
     cleanupRecording();
     stopGlobalSpeech();
@@ -585,11 +610,10 @@ export default function AIConversationScreen() {
     }
 
     setIsActive(false);
-    setStatus('idle');
+    setStatusAndRef('idle');
     setAiText('');
     setAudioLevels(new Array(WAVEFORM_BARS).fill(0));
     vadLockedRef.current = false;
-    setIsProcessing(false);
     conversationHistoryRef.current = [];
     callStartTimeRef.current = 0;
     totalCallDurationRef.current = 0;
@@ -630,7 +654,7 @@ export default function AIConversationScreen() {
       <View style={styles.topBar}>
         <Text style={styles.topBarTitle}>AI 通话</Text>
         {isActive && (
-          <Text style={styles.timerHint}>2分钟内无声音将自动挂断</Text>
+          <Text style={styles.timerHint}>1分钟内无声音将自动挂断</Text>
         )}
         <TouchableOpacity
           style={styles.historyButton}
@@ -701,17 +725,7 @@ export default function AIConversationScreen() {
         )}
 
         {/* 状态文本 */}
-        <Text style={styles.statusText}>
-          {isProcessing ? 'AI 正在处理你的语音...' : getStatusText()}
-        </Text>
-
-        {/* thinking 状态加载指示器 */}
-        {status === 'thinking' && isProcessing && (
-          <View style={styles.thinkingIndicator}>
-            <ActivityIndicator size="small" color="#FBBF24" />
-            <Text style={styles.thinkingText}>语音转写 & 生成回复中...</Text>
-          </View>
-        )}
+        <Text style={styles.statusText}>{getStatusText()}</Text>
 
         {/* AI 当前文本（speaking 时显示） */}
         {status === 'speaking' && aiText ? (

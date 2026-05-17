@@ -377,7 +377,8 @@ async function ensurePhrases(
 
   // 步骤 3：词库未命中，调用 AI 生成（带重试机制）
   // AI 会自动重试最多 3 次，失败则抛出错误，不使用兜底模板
-  const generatedPhrases = await fetchPhrasesForObject(word, API_KEY, false, source);
+  // 传入 translation 确保 AI 生成后写入 search_word_bank 时 translation 字段不为空
+  const generatedPhrases = await fetchPhrasesForObject(word, API_KEY, false, source, translation as any);
   console.log(`📝 [vocabularyService] 为 "${word}" 通过 AI 生成 ${generatedPhrases.length} 个例句`);
 
   // 确保至少有两条例句
@@ -667,6 +668,16 @@ async function performAsyncFavorite(
     console.log(`🔄 [performAsyncFavorite] 步骤 3: 添加到生词本`);
     const result = await addVocabulary(word, translation, finalPhrases, source, usage, imagePath);
     console.log(`✅ [performAsyncFavorite] 步骤 3: 添加完成，结果: ${result}`);
+    
+    // 步骤 4：异步写入共享词库（search_word_bank）
+    // 当 source === 'search' 且有 translation 时，将单词写入 search_word_bank 共享词库
+    // 这样其他用户搜索该单词时可以直接从词库中获取，无需重复调用 AI 生成
+    if (source === 'search' && translation) {
+      console.log(`🔄 [performAsyncFavorite] 步骤 4: 异步写入 search_word_bank`);
+      asyncWriteSearchWordBank(word, translation, finalPhrases).catch(error => {
+        console.warn(`⚠️ [performAsyncFavorite] 写入 search_word_bank 失败: ${word}`, error?.message || error);
+      });
+    }
     
     console.log(`✅ [performAsyncFavorite] ========== 后台收藏完成: ${word} ==========`);
   } catch (error: any) {

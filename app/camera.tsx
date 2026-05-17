@@ -162,6 +162,8 @@ export default function CameraScreen() {
   
   // 追踪预览图片的实际显示尺寸（用于坐标校准）
   const [imageLayout, setImageLayout] = useState({ width: 0, height: 0, offsetX: 0, offsetY: 0 });
+  // 图片的实际宽高比（从压缩后的图片获取，用于 AnchorPointComponent 坐标映射）
+  const [imageAspectRatio, setImageAspectRatio] = useState(4 / 3);
 
   // 自动收藏反馈提示
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -269,6 +271,10 @@ export default function CameraScreen() {
         { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
       );
       setPhoto(compressed.uri);
+      // 保存压缩后图片的实际宽高比（用于后续 AI 锚点坐标映射）
+      if (compressed.width && compressed.height) {
+        setImageAspectRatio(compressed.width / compressed.height);
+      }
       setMode('preview');
       setAiData(null);
       setSelectedId(null);
@@ -307,9 +313,23 @@ export default function CameraScreen() {
       // 1. AI 分析场景内容（阻塞等待完整 JSON 返回）
       console.log("🚀 开始 AI 场景分析，图片:", photo.substring(0, 50));
       const result = (await analyzeImage(photo, API_KEY)) as AiData;
-      if (!result || !result.intro || !Array.isArray(result.objects) || result.objects.length === 0) {
+      
+      // 检查结果是否有效
+      if (!result || !result.intro || !Array.isArray(result.objects)) {
         throw new Error('AI 返回数据格式不正确');
       }
+      
+      // 如果没有识别到任何物体，友好提示用户
+      if (result.objects.length === 0) {
+        setIsAnalyzing(false);
+        Alert.alert(
+          '没有识别到物体',
+          '请重新拍摄一张更清晰的照片，或者拍摄包含更多物体的场景。',
+          [{ text: '好的', style: 'default' }]
+        );
+        return;
+      }
+      
       console.log("✅ AI 分析完成，识别到", result.objects.length, "个物体");
 
       // 2. 【立即显示 UI】先把红点气泡渲染出来
@@ -374,13 +394,34 @@ export default function CameraScreen() {
       console.error('智谱 AI 分析失败:', error);
       setIsAnalyzing(false);
       const msg = error.message || '未知错误';
+      
+      // 更友好的错误提示
       if (typeof msg === 'string' && msg.startsWith('TIMEOUT:')) {
-        Alert.alert('服务器繁忙', msg.replace('TIMEOUT:', '') + '\n\n是否重试？', [
+        Alert.alert('请求超时', msg.replace('TIMEOUT:', '') + '\n\n网络有点慢，是否重试？', [
           { text: '取消', style: 'cancel' },
           { text: '重试', onPress: () => handleAnalyzeScene() },
         ]);
+      } else if (typeof msg === 'string' && (msg.includes('无法解析') || msg.includes('格式'))) {
+        Alert.alert(
+          '识别失败',
+          '照片可能太模糊，或者没有清晰的物体。请重新拍摄一张更清晰的照片试试。',
+          [{ text: '好的', style: 'default' }]
+        );
+      } else if (typeof msg === 'string' && msg.includes('网络')) {
+        Alert.alert(
+          '网络问题',
+          '请检查网络连接后重试。',
+          [
+            { text: '取消', style: 'cancel' },
+            { text: '重试', onPress: () => handleAnalyzeScene() },
+          ]
+        );
       } else {
-        Alert.alert('分析失败', msg);
+        Alert.alert(
+          '分析失败',
+          '请重新拍摄一张更清晰的照片试试。\n\n错误详情: ' + msg,
+          [{ text: '好的', style: 'default' }]
+        );
       }
     }
   }, [photo]);
@@ -881,6 +922,7 @@ export default function CameraScreen() {
                   isLoadingPhrase={isLoadingPhrase && selectedIndex === idx}
                   onPress={() => handleAnchorPress(obj, idx)}
                   imageLayout={imageLayout}
+                  imageAspect={imageAspectRatio}
                 />
               ))}
             </View>
@@ -1120,12 +1162,14 @@ function AnchorPointComponent({
   isLoadingPhrase,
   onPress,
   imageLayout,
+  imageAspect,
 }: {
   obj: AiObject;
   isSelected: boolean;
   isLoadingPhrase: boolean;
   onPress: () => void;
   imageLayout: { width: number; height: number; offsetX: number; offsetY: number };
+  imageAspect: number;
 }) {
   const dotSize = obj.size === 'S' ? 8 : 16;
   const scaleAnim = useRef(new Animated.Value(isSelected ? 1.5 : 1)).current;
@@ -1173,13 +1217,10 @@ function AnchorPointComponent({
   const dotPositionStyle = (() => {
     if (imageLayout.width > 0 && imageLayout.height > 0) {
       // 计算图片在 contain 模式下的实际显示尺寸
-      // 假设原始图片宽高比 = 4:3（相机默认 ratio），但实际可能不同
-      // 使用容器宽高比与图片宽高比对比，确定 letterboxing 方向
+      // 使用容器宽高比与图片实际宽高比对比，确定 letterboxing 方向
       const containerAspect = imageLayout.width / imageLayout.height;
-      // 相机拍摄的图片通常是 4:3，但 AI 分析时图片被压缩到 800px 宽（见 handleTakePicture）
-      // 压缩后的图片宽高比保持原始比例，通常是 4:3
-      // 使用 4:3 作为默认图片宽高比
-      const imageAspect = 4 / 3;
+      // 使用从压缩图片获取的实际宽高比（见 handleTakePicture 中的 setImageAspectRatio）
+      // 这确保了 AI 看到的图片比例与显示时的图片比例一致
 
       let displayWidth: number;
       let displayHeight: number;
@@ -1353,16 +1394,16 @@ const styles = StyleSheet.create({
   },
   dockActionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   retakeBtn: {
-    backgroundColor: 'rgba(255,107,157,0.25)',
-    borderColor: 'rgba(255,107,157,0.6)',
+    backgroundColor: 'rgba(255,182,193,0.35)',
+    borderColor: 'rgba(255,182,193,0.7)',
   },
   analyzeBtn: {
-    backgroundColor: 'rgba(255,107,157,0.25)',
-    borderColor: 'rgba(255,107,157,0.6)',
+    backgroundColor: 'rgba(255,182,193,0.35)',
+    borderColor: 'rgba(255,182,193,0.7)',
   },
   analyzedBtn: {
-    backgroundColor: 'rgba(255,107,157,0.25)',
-    borderColor: 'rgba(255,107,157,0.6)',
+    backgroundColor: 'rgba(255,182,193,0.35)',
+    borderColor: 'rgba(255,182,193,0.7)',
   },
 
   // DetailCard

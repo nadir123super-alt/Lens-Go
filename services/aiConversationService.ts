@@ -2,28 +2,32 @@
  * aiConversationService — AI 实时口语对话服务 (Step 2 & 3)
  *
  * 功能：
- * 1. STT（语音转文字）：调用腾讯云 ASR SentenceRecognition 将音频文件转写为文本
- * 2. LLM（大模型对话）：调用硅基流动 Qwen2.5-72B-Instruct（OpenAI 兼容格式），
+ * 1. STT（语音转文字）：优先调用腾讯云 ASR SentenceRecognition，失败时回退到讯飞 IAT
+ * 2. LLM（大模型对话）：调用智谱 GLM-4-Flash（免费模型，OpenAI 兼容格式），
  *    使用专属 System Prompt 实现中英混说智能纠错
  *
  * 依赖：
- * - tencentAsrService.ts: transcribeWithTencent (STT)
- * - 环境变量：LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_NAME
+ * - tencentAsrService.ts: transcribeWithTencent (STT 主引擎)
+ * - iflytekService.ts: transcribeWithIflytek (STT 回退引擎)
+ * - 环境变量：EXPO_PUBLIC_ZHIPU_API_KEY
  *
  * 环境变量说明（需在 .env 中配置）：
- * - TENCENT_SECRET_ID: 腾讯云 API 密钥 ID
- * - TENCENT_SECRET_KEY: 腾讯云 API 密钥 Key
- * - LLM_API_KEY: 硅基流动 API Key
- * - LLM_BASE_URL: 硅基流动 API 地址 (https://api.siliconflow.cn/v1)
- * - LLM_MODEL_NAME: 模型名称 (Qwen/Qwen2.5-72B-Instruct)
+ * - EXPO_PUBLIC_TENCENT_SECRET_ID / TENCENT_SECRET_ID: 腾讯云 API 密钥 ID
+ * - EXPO_PUBLIC_TENCENT_SECRET_KEY / TENCENT_SECRET_KEY: 腾讯云 API 密钥 Key
+ * - EXPO_PUBLIC_XF_APP_ID / XF_APP_ID: 讯飞 APP ID（回退用）
+ * - EXPO_PUBLIC_XF_API_KEY / XF_API_KEY: 讯飞 API Key（回退用）
+ * - EXPO_PUBLIC_XF_API_SECRET / XF_API_SECRET: 讯飞 API Secret（回退用）
+ * - EXPO_PUBLIC_ZHIPU_API_KEY: 智谱 AI API Key（用于 GLM-4-Flash 对话）
  */
 
+import { transcribeWithIflytek } from './iflytekService';
 import { transcribeWithTencent } from './tencentAsrService';
 
-// ====== 硅基流动 LLM 配置 ======
-const LLM_BASE_URL = process.env.EXPO_PUBLIC_LLM_BASE_URL || process.env.LLM_BASE_URL || 'https://api.siliconflow.cn/v1';
-const LLM_API_KEY = process.env.EXPO_PUBLIC_LLM_API_KEY || process.env.LLM_API_KEY || '';
-const LLM_MODEL_NAME = process.env.EXPO_PUBLIC_LLM_MODEL_NAME || process.env.LLM_MODEL_NAME || 'Qwen/Qwen2.5-72B-Instruct';
+// ====== 智谱 GLM-4-Flash 配置（免费模型） ======
+const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+// 优先从 process.env 读取（Expo 编译注入），兜底使用硬编码值（确保运行时可用）
+const ZHIPU_API_KEY = process.env.EXPO_PUBLIC_ZHIPU_API_KEY || 'f70c822d62bb4fa488e6cf93401a1ed6.MM9sPamtfzmwXDHv';
+const ZHIPU_MODEL_NAME = 'GLM-4-Flash';
 const LLM_TIMEOUT_MS = 30000;
 
 // ====== 对话历史管理 ======
@@ -32,21 +36,29 @@ export interface ConversationMessage {
   content: string;
 }
 
-// ====== System Prompt（英语教练 + 中英混说纠错） ======
-const SYSTEM_PROMPT = `You are a warm, patient, and professional English coach for the app "LensGo". Your goal is to help the user practice spoken English in a relaxed manner.
+// ====== System Prompt（英语口语陪练 + 中英混说教学） ======
+// 设计原则：简短、自然、聚焦对话。当用户混用中文时，AI 识别中文并教英文表达。
+const SYSTEM_PROMPT = `You are a friendly English conversation partner for the app "LensGo". Your job is to have a natural conversation AND help the user learn English expressions.
 
-CRITICAL RULES FOR YOUR RESPONSES:
-1. ALWAYS respond in natural, idiomatic, and conversational English as the main body of your reply. Keep your speech engaging and conversational.
-2. LANGUAGE DETECTION & CORRECTION: 
-   - Monitor the user's input closely. If the user uses ANY Chinese words or sentences (or mixes Chinese and English), you must understand it perfectly.
-   - At the VERY END of your response, add a gentle, distinct correction note in Chinese. 
-   - The note must explicitly tell the user how to say the Chinese part they used in natural English, providing a better alternative or translation.
-3. FORMAT: Keep your English reply concise (1-3 sentences) so it's easy to listen to. Separated from your correction note by a new line.
+RULES:
+1. Listen carefully to what the user says and respond NATURALLY — like a real person, not a teacher.
+2. Keep your reply SHORT: 1-2 sentences max. This is a voice call, not a text chat.
+3. If the user says something in Chinese (a word or phrase they don't know in English), do the following:
+   a. First, acknowledge what they said and respond naturally to their message.
+   b. Then, teach them the English equivalent: "In English, you can say: [English expression]."
+   c. Keep the teaching part brief — just one short sentence.
+4. Never repeat the same phrase. Vary your responses naturally.
+5. Ask follow-up questions to keep the conversation going.
 
-Example Scenario:
+Examples:
 User: "The living room looks nice, but we need a 地毯."
-AI Response: "I agree! A nice living room always feels warmer with the right home decor. 
-💡 英语小贴士：你刚才提到了"地毯"，在英语中我们通常说 'rug'（特别指小地毯/块毯）或者 'carpet'（铺满房间的大地毯）。你可以试着说：'We need a rug.'"`;
+AI: "Oh, a rug would really tie the room together! In English, you can say 'rug' or 'carpet'. What color are you thinking?"
+
+User: "I want to 预约 a table for dinner."
+AI: "Great idea! In English, you can say 'reserve' or 'book' a table. How many people are coming?"
+
+User: "This 风景 is so beautiful."
+AI: "It really is! In English, you can say 'scenery' or 'view'. Are you traveling somewhere nice?"`;
 
 // ====== 构建 LLM 请求消息列表 ======
 function buildMessages(
@@ -68,27 +80,32 @@ function buildMessages(
   return messages;
 }
 
-// ====== 调用硅基流动 LLM API 获取 AI 回复 ======
+// ====== 调用智谱 GLM-4-Flash API 获取 AI 回复（免费模型） ======
 export async function getAiReply(
   userText: string,
   history: ConversationMessage[]
 ): Promise<string> {
-  const apiKey = LLM_API_KEY;
-  const baseUrl = LLM_BASE_URL.replace(/\/+$/, ''); // 去除末尾斜杠
-  const modelName = LLM_MODEL_NAME;
+  const apiKey = ZHIPU_API_KEY;
 
-  if (!apiKey || apiKey === 'your-llm-api-key-here') {
-    console.warn('[aiConversationService] LLM API Key 未配置，使用模拟回复');
+  if (!apiKey) {
+    console.warn('[aiConversationService] 智谱 API Key 未配置，使用模拟回复');
     return getFallbackReply(userText);
   }
 
   const messages = buildMessages(userText, history);
 
+  // 调试日志：打印发送给 LLM 的消息（方便排查问题）
+  console.log('[aiConversationService] 📤 发送给 LLM 的消息:');
+  messages.forEach((m, i) => {
+    const preview = m.content.length > 80 ? m.content.substring(0, 80) + '...' : m.content;
+    console.log(`  [${i}] ${m.role}: ${preview}`);
+  });
+
   const requestBody = {
-    model: modelName,
+    model: ZHIPU_MODEL_NAME,
     messages,
-    max_tokens: 1024,
-    temperature: 0.7,
+    max_tokens: 256,        // 限制回复长度，避免冗长
+    temperature: 0.9,       // 提高温度，增加回复多样性
     stream: false,
   };
 
@@ -96,7 +113,7 @@ export async function getAiReply(
   const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(ZHIPU_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -111,7 +128,7 @@ export async function getAiReply(
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
       console.error(
-        `[aiConversationService] 硅基流动 API 请求失败 (${response.status}): ${errorBody || response.statusText}`
+        `[aiConversationService] 智谱 API 请求失败 (${response.status}): ${errorBody || response.statusText}`
       );
       return getFallbackReply(userText);
     }
@@ -120,17 +137,18 @@ export async function getAiReply(
     const content = result.choices?.[0]?.message?.content;
 
     if (!content) {
-      console.warn('[aiConversationService] 硅基流动 API 返回内容为空');
+      console.warn('[aiConversationService] 智谱 API 返回内容为空');
       return getFallbackReply(userText);
     }
 
+    console.log('[aiConversationService] ✅ LLM 原始回复:', content);
     return content.trim();
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      console.warn('[aiConversationService] 硅基流动请求超时');
+      console.warn('[aiConversationService] 智谱请求超时');
     } else {
-      console.error('[aiConversationService] 硅基流动请求失败:', error.message);
+      console.error('[aiConversationService] 智谱请求失败:', error.message);
     }
     return getFallbackReply(userText);
   }
@@ -146,43 +164,66 @@ function getFallbackReply(userText: string): string {
     const chineseParts = userText.match(/[\u4e00-\u9fff]+/g) || [];
     const chineseWords = [...new Set(chineseParts)].join('、');
 
-    return `That's an interesting mix! I can understand what you're saying. 
-💡 英语小贴士：你刚才使用了中文词汇"${chineseWords}"。在英语对话中，建议尝试用英文表达。如果你不确定某个词的英文说法，可以这样说："How do you say ${chineseWords} in English?" 这样我就能帮你了！`;
+    return `That's an interesting mix! I can understand what you're saying.
+👉 你刚才用了"${chineseWords}"，试试用英文表达会更棒！如果你不确定，可以问我："How do you say ${chineseWords} in English?"`;
   }
 
   return "That's great! Keep practicing and you'll improve quickly. What else would you like to talk about?";
 }
 
-// ====== STT：语音转文字（腾讯云 ASR） ======
+// ====== STT：语音转文字（腾讯云 ASR + 讯飞 IAT 回退） ======
 /**
- * 将音频文件发送到腾讯云 ASR 转写为文本
+ * 将音频文件转写为文本
+ *
+ * 策略：
+ * 1. 优先调用腾讯云 ASR（SentenceRecognition）
+ * 2. 如果腾讯云未配置或失败，自动回退到讯飞 IAT（WebSocket 流式听写）
+ *
  * @param audioUri 音频文件 URI
  * @returns 转写后的文本
  */
 export async function transcribeAudio(audioUri: string): Promise<string> {
+  // ---- 策略 1：腾讯云 ASR ----
   try {
-    console.log('[aiConversationService] 🎤 开始语音转写（腾讯云 ASR）:', audioUri);
+    console.log('[aiConversationService] 🎤 尝试腾讯云 ASR:', audioUri);
 
-    // 调用腾讯云 ASR 进行语音转写
     const transcribedText = await transcribeWithTencent(audioUri);
 
-    console.log('[aiConversationService] ✅ 转写结果:', transcribedText);
-
-    if (!transcribedText || transcribedText.trim().length === 0) {
-      console.warn('[aiConversationService] ⚠️ 转写结果为空');
-      return '';
+    if (transcribedText && transcribedText.trim().length > 0) {
+      console.log('[aiConversationService] ✅ 腾讯云 ASR 转写结果:', transcribedText);
+      return transcribedText.trim();
     }
 
-    return transcribedText.trim();
+    console.warn('[aiConversationService] ⚠️ 腾讯云 ASR 转写结果为空');
   } catch (error: any) {
-    console.error('[aiConversationService] ❌ 语音转写失败:', error.message);
+    console.warn('[aiConversationService] ⚠️ 腾讯云 ASR 失败:', error.message);
 
-    // 如果是空音频错误，返回空字符串
+    // 空音频不重试
     if (error.message === 'EMPTY_AUDIO') {
       return '';
     }
+  }
 
-    // 其他错误也返回空，让上层决定如何处理
+  // ---- 策略 2：回退到讯飞 IAT ----
+  try {
+    console.log('[aiConversationService] 🎤 回退到讯飞 IAT:', audioUri);
+
+    const iflytekText = await transcribeWithIflytek(audioUri);
+
+    if (iflytekText && iflytekText.trim().length > 0) {
+      console.log('[aiConversationService] ✅ 讯飞 IAT 转写结果:', iflytekText);
+      return iflytekText.trim();
+    }
+
+    console.warn('[aiConversationService] ⚠️ 讯飞 IAT 转写结果为空');
+    return '';
+  } catch (fallbackError: any) {
+    console.error('[aiConversationService] ❌ 讯飞 IAT 也失败:', fallbackError.message);
+
+    if (fallbackError.message === 'EMPTY_AUDIO') {
+      return '';
+    }
+
     return '';
   }
 }

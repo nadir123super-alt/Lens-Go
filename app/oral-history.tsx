@@ -1,8 +1,18 @@
+/**
+ * OralHistoryScreen - AI 通话历史记录列表页
+ *
+ * 功能：
+ * - 点击卡片跳转 oral-history-detail 详情页（类似生词本点击跳转 word-detail）
+ * - Swipeable 左滑显示红色"删除"按钮（跟生词本一样）
+ * - 点击删除按钮弹出二次确认 Alert
+ */
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
   FlatList,
   StatusBar,
   StyleSheet,
@@ -10,8 +20,9 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getOralMessages, getOralSessions, OralMessage, OralSession } from '../services/oralHistoryService';
+import { clearAllOralSessions, deleteOralSession, getOralSessions, OralSession } from '../services/oralHistoryService';
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -36,9 +47,6 @@ export default function OralHistoryScreen() {
 
   const [sessions, setSessions] = useState<OralSession[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Record<string, OralMessage[]>>({});
-  const [loadingMessages, setLoadingMessages] = useState<string | null>(null);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -47,102 +55,75 @@ export default function OralHistoryScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
+  // 每次页面聚焦时刷新（类似生词本 useFocusEffect）
+  useFocusEffect(
+    useCallback(() => {
+      loadSessions();
+    }, [loadSessions])
+  );
 
-  const toggleExpand = useCallback(async (sessionId: string) => {
-    if (expandedId === sessionId) {
-      setExpandedId(null);
-      return;
-    }
+  // ── 点击卡片跳转详情页 ──
+  const handleCardPress = useCallback((item: OralSession) => {
+    router.push({
+      pathname: '/oral-history-detail',
+      params: { sessionId: item.id },
+    });
+  }, [router]);
 
-    setExpandedId(sessionId);
-
-    if (!messages[sessionId]) {
-      setLoadingMessages(sessionId);
-      const msgs = await getOralMessages(sessionId);
-      setMessages((prev) => ({ ...prev, [sessionId]: msgs }));
-      setLoadingMessages(null);
-    }
-  }, [expandedId, messages]);
-
-  const renderMessage = (msg: OralMessage, index: number) => {
-    const isUser = msg.role === 'user';
-
-    return (
-      <View
-        key={index}
-        style={[
-          styles.msgBubble,
-          isUser ? styles.msgBubbleUser : styles.msgBubbleAI,
-        ]}
-      >
-        <Text
-          style={[
-            styles.msgRole,
-            isUser ? styles.msgRoleUser : styles.msgRoleAI,
-          ]}
-        >
-          {isUser ? '你' : 'AI 外教'}
-        </Text>
-        <Text
-          style={[
-            styles.msgText,
-            isUser ? styles.msgTextUser : styles.msgTextAI,
-          ]}
-        >
-          {msg.content}
-        </Text>
-      </View>
+  // ── 删除（二次确认） ──
+  const handleDelete = useCallback((item: OralSession, swipeableRef?: Swipeable | null) => {
+    Alert.alert(
+      '删除记录',
+      '确定要删除这条通话记录吗？删除后无法恢复。',
+      [
+        { text: '取消', style: 'cancel', onPress: () => swipeableRef?.close() },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: async () => {
+            const success = await deleteOralSession(item.id);
+            if (success) {
+              setSessions((prev) => prev.filter((s) => s.id !== item.id));
+            } else {
+              Alert.alert('删除失败', '请稍后重试');
+            }
+          },
+        },
+      ]
     );
-  };
+  }, []);
 
-  const renderSession = ({ item }: { item: OralSession }) => {
-    const isExpanded = expandedId === item.id;
-    const sessionMessages = messages[item.id] || [];
+  // ── 一键清空所有记录 ──
+  const handleClearAll = useCallback(() => {
+    Alert.alert('清空历史对话', '⚠️ 此操作将永久删除所有通话记录，\n请确认是否继续？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '清空',
+        style: 'destructive',
+        onPress: async () => {
+          const success = await clearAllOralSessions();
+          if (success) {
+            setSessions([]);
+            Alert.alert('✅ 已清空', '所有通话记录已清空');
+          } else {
+            Alert.alert('清空失败', '请稍后重试');
+          }
+        },
+      },
+    ]);
+  }, []);
 
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => toggleExpand(item.id)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.cardHeader}>
-          <View style={styles.cardHeaderLeft}>
-            <Feather name="phone-call" size={16} color="#A78BFA" />
-            <Text style={styles.cardTime}>{formatTime(item.created_at)}</Text>
-          </View>
-          <View style={styles.cardHeaderRight}>
-            <Text style={styles.cardDuration}>{formatDuration(item.duration_seconds)}</Text>
-            <Feather
-              name={isExpanded ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color="rgba(255,255,255,0.4)"
-            />
-          </View>
-        </View>
-
-        <View style={styles.cardMeta}>
-          <Text style={styles.cardMetaText}>
-            {'通话时长 ' + formatDuration(item.duration_seconds)}
-          </Text>
-        </View>
-
-        {isExpanded && (
-          <View style={styles.messagesContainer}>
-            {loadingMessages === item.id ? (
-              <ActivityIndicator size="small" color="#A78BFA" style={{ marginVertical: 16 }} />
-            ) : sessionMessages.length > 0 ? (
-              sessionMessages.map((msg, idx) => renderMessage(msg, idx))
-            ) : (
-              <Text style={styles.emptyMsg}>暂无消息记录</Text>
-            )}
-          </View>
-        )}
-      </TouchableOpacity>
-    );
-  };
+  // ── 渲染卡片 ──
+  const renderSession = useCallback(
+    ({ item }: { item: OralSession }) => (
+      <OralSessionCard
+        item={item}
+        onPress={handleCardPress}
+        onDelete={handleDelete}
+      />
+    ),
+    [handleCardPress, handleDelete]
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -158,7 +139,15 @@ export default function OralHistoryScreen() {
           <Feather name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.topBarTitle}>历史对话</Text>
-        <View style={{ width: 40 }} />
+        {sessions.length > 0 && (
+          <TouchableOpacity
+            style={styles.clearButton}
+            onPress={handleClearAll}
+            activeOpacity={0.7}
+          >
+            <Feather name="trash-2" size={18} color="#EF4444" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* 内容区域 */}
@@ -183,6 +172,77 @@ export default function OralHistoryScreen() {
         />
       )}
     </View>
+  );
+}
+
+// ====== 单项卡片（Swipeable 左滑删除）======
+// 跟生词本 VocabCard 一样的 Swipeable 左滑删除逻辑
+function OralSessionCard({
+  item,
+  onPress,
+  onDelete,
+}: {
+  item: OralSession;
+  onPress: (item: OralSession) => void;
+  onDelete: (item: OralSession, ref?: Swipeable | null) => void;
+}) {
+  const swipeableRef = useRef<Swipeable>(null);
+
+  // 右侧操作区：红色"删除"按钮
+  const renderRightActions = (
+    _progress: Animated.AnimatedInterpolation<number>,
+    dragX: Animated.AnimatedInterpolation<number>
+  ) => {
+    const translateX = dragX.interpolate({
+      inputRange: [-80, 0],
+      outputRange: [0, 80],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <Animated.View style={[styles.deleteAction, { transform: [{ translateX }] }]}>
+        <TouchableOpacity
+          style={styles.deleteBtn}
+          onPress={() => onDelete(item, swipeableRef.current)}
+          activeOpacity={0.8}
+        >
+          <Feather name="trash-2" size={22} color="#fff" />
+          <Text style={styles.deleteBtnText}>删除</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
+
+  return (
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      rightThreshold={40}
+    >
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => onPress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.cardHeaderLeft}>
+            <Feather name="phone-call" size={16} color="#A78BFA" />
+            <Text style={styles.cardTime}>{formatTime(item.created_at)}</Text>
+          </View>
+          <View style={styles.cardHeaderRight}>
+            <Text style={styles.cardDuration}>{formatDuration(item.duration_seconds)}</Text>
+            <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.3)" />
+          </View>
+        </View>
+
+        <View style={styles.cardMeta}>
+          <Text style={styles.cardMetaText}>
+            通话时长 {formatDuration(item.duration_seconds)}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    </Swipeable>
   );
 }
 
@@ -212,6 +272,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#fff',
+  },
+  clearButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // ── 加载状态 ──
@@ -256,9 +324,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(167, 139, 250, 0.15)',
+    marginBottom: 12,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -292,57 +360,26 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.35)',
   },
 
-  // ── 消息容器 ──
-  messagesContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+  // ── Swipeable 删除按钮 ──
+  deleteAction: {
+    marginBottom: 12,
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-
-  // ── 消息气泡 ──
-  msgBubble: {
-    maxWidth: '85%',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 14,
-    marginBottom: 10,
+  deleteBtn: {
+    backgroundColor: '#EF4444',
+    borderRadius: 16,
+    width: 80,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'column',
+    gap: 4,
   },
-  msgBubbleAI: {
-    backgroundColor: 'rgba(167, 139, 250, 0.12)',
-    alignSelf: 'flex-start',
-    borderBottomLeftRadius: 4,
-  },
-  msgBubbleUser: {
-    backgroundColor: 'rgba(110, 231, 183, 0.12)',
-    alignSelf: 'flex-end',
-    borderBottomRightRadius: 4,
-  },
-  msgRole: {
-    fontSize: 11,
+  deleteBtnText: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: '600',
-    marginBottom: 4,
-  },
-  msgRoleAI: {
-    color: '#A78BFA',
-  },
-  msgRoleUser: {
-    color: '#6EE7B7',
-  },
-  msgText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  msgTextAI: {
-    color: '#E2E8F0',
-  },
-  msgTextUser: {
-    color: '#D1FAE5',
-  },
-  emptyMsg: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
-    textAlign: 'center',
-    paddingVertical: 16,
   },
 });

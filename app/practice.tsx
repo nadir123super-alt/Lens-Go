@@ -66,6 +66,7 @@ import {
     VOLUME_THRESHOLD_DB
 } from '@/services/recordingService';
 
+import edgeTtsService from '@/services/edgeTtsService';
 import { recordLearningActivity } from '@/services/studyStatsService';
 import { destroyTTS, initTTS, stopTTS } from '@/services/ttsService';
 
@@ -97,7 +98,7 @@ function playWithHighlightHelper(
   isWordMode: boolean,
   setHighlightProgress: React.SetStateAction<number> | ((value: React.SetStateAction<number>) => void),
   setCharProgress?: (value: React.SetStateAction<number>) => void,
-  speakFn?: (text: string, onDone?: () => void, onGlobalCharProgress?: (charIndex: number) => void) => void
+  speakFn?: (text: string, onDone?: () => void, onProgress?: any, onGlobalCharProgress?: (charIndex: number) => void) => void
 ) {
   // 确保是函数类型
   const setProgress = typeof setHighlightProgress === 'function'
@@ -115,10 +116,21 @@ function playWithHighlightHelper(
   if (isWordMode) {
     // 单词模式：直接使用 TTS 的字符进度回调，逐个字母点亮
     if (speakFn) {
+      // 使用提供的 speakFn（通常是 globalSpeak）
+      // globalSpeak 的签名是: (text, onDone, onProgress, onGlobalCharProgress)
       speakFn(
         text,
         () => setProgress(text.length),
+        undefined, // onProgress 回调，我们不需要片段级进度
         (charIndex) => setProgress(charIndex)
+      );
+    } else {
+      // 没有提供 speakFn，使用 ttsService
+      const { playTextWithCharProgress } = require('@/services/ttsService');
+      playTextWithCharProgress(
+        text,
+        () => setProgress(text.length),
+        (charIndex: number) => setProgress(charIndex)
       );
     }
   } else {
@@ -133,7 +145,30 @@ function playWithHighlightHelper(
       position += word.length + 1; // +1 用于空格
     });
 
+    // 处理字符进度的通用函数
+    const handleCharProgress = (charIndex: number) => {
+      // TTS 引擎实时回调：当前正在播放的字符索引
+      // 找到当前字符属于哪个单词
+      let currentWordIndex = words.length - 1;
+      for (let i = 0; i < words.length; i++) {
+        const nextStart = i < words.length - 1 ? wordStartPositions[i + 1] : text.length;
+        if (charIndex >= wordStartPositions[i] && charIndex < nextStart) {
+          currentWordIndex = i;
+          break;
+        }
+      }
+
+      // 计算当前单词内的字符位置
+      const charInWord = charIndex - wordStartPositions[currentWordIndex];
+      const wordLength = words[currentWordIndex]?.length || 0;
+
+      // 更新状态
+      setProgress(currentWordIndex);
+      setChar(Math.min(charInWord, wordLength));
+    };
+
     if (speakFn) {
+      // 使用提供的 speakFn（通常是 globalSpeak）
       speakFn(
         text,
         () => {
@@ -141,26 +176,19 @@ function playWithHighlightHelper(
           setProgress(words.length);
           setChar(0);
         },
-        (charIndex) => {
-          // TTS 引擎实时回调：当前正在播放的字符索引
-          // 找到当前字符属于哪个单词
-          let currentWordIndex = words.length - 1;
-          for (let i = 0; i < words.length; i++) {
-            const nextStart = i < words.length - 1 ? wordStartPositions[i + 1] : text.length;
-            if (charIndex >= wordStartPositions[i] && charIndex < nextStart) {
-              currentWordIndex = i;
-              break;
-            }
-          }
-
-          // 计算当前单词内的字符位置
-          const charInWord = charIndex - wordStartPositions[currentWordIndex];
-          const wordLength = words[currentWordIndex]?.length || 0;
-
-          // 更新状态
-          setProgress(currentWordIndex);
-          setChar(Math.min(charInWord, wordLength));
-        }
+        undefined, // onProgress 回调
+        handleCharProgress
+      );
+    } else {
+      // 没有提供 speakFn，使用 ttsService
+      const { playTextWithCharProgress } = require('@/services/ttsService');
+      playTextWithCharProgress(
+        text,
+        () => {
+          setProgress(words.length);
+          setChar(0);
+        },
+        handleCharProgress
       );
     }
   }
@@ -334,7 +362,7 @@ export default function PracticeScreen() {
       if (sentence) edgeTtsService.preload(sentence, 'en');
       
       setTimeout(() => {
-        if (w) playWithHighlightHelper(w.word, true, setHighlightProgress);
+        if (w) playWithHighlightHelper(w.word, true, setHighlightProgress, undefined, globalSpeak);
       }, 400);
     }
   };
@@ -375,7 +403,7 @@ export default function PracticeScreen() {
       }).start();
 
       if (s) {
-        setTimeout(() => playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress), 300);
+        setTimeout(() => playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress, globalSpeak), 300);
       }
     });
   };
@@ -402,7 +430,7 @@ export default function PracticeScreen() {
     if (sentence) edgeTtsService.preload(sentence, 'en');
     
     setTimeout(() => {
-      if (w) playWithHighlightHelper(w.word, true, setHighlightProgress);
+      if (w) playWithHighlightHelper(w.word, true, setHighlightProgress, undefined, globalSpeak);
     }, 100);
   };
 
@@ -549,11 +577,11 @@ export default function PracticeScreen() {
           const w = getCurrentWord(session!);
           if (w) {
             if (currentTask === 'word') {
-              playWithHighlightHelper(w.word, true, setHighlightProgress);
+              playWithHighlightHelper(w.word, true, setHighlightProgress, undefined, globalSpeak);
             } else {
               const s = getCurrentSentence(session!);
               if (s) {
-                playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress);
+                playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress, globalSpeak);
               }
             }
           }
@@ -604,11 +632,11 @@ export default function PracticeScreen() {
           const w = getCurrentWord(session!);
           if (w) {
             if (currentTask === 'word') {
-              playWithHighlightHelper(w.word, true, setHighlightProgress);
+              playWithHighlightHelper(w.word, true, setHighlightProgress, undefined, globalSpeak);
             } else {
               const s = getCurrentSentence(session!);
               if (s) {
-                playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress);
+                playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress, globalSpeak);
               }
             }
           }
@@ -657,11 +685,11 @@ export default function PracticeScreen() {
         const w = getCurrentWord(session!);
         if (w) {
           if (currentTask === 'word') {
-            playWithHighlightHelper(w.word, true, setHighlightProgress);
+            playWithHighlightHelper(w.word, true, setHighlightProgress, undefined, globalSpeak);
           } else {
             const s = getCurrentSentence(session!);
             if (s) {
-              playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress);
+              playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress, globalSpeak);
             }
           }
         }
@@ -713,11 +741,11 @@ export default function PracticeScreen() {
           const w = getCurrentWord(session!);
           if (w) {
             if (currentTask === 'word') {
-              playWithHighlightHelper(w.word, true, setHighlightProgress);
+              playWithHighlightHelper(w.word, true, setHighlightProgress, undefined, globalSpeak);
             } else {
               const s = getCurrentSentence(session!);
               if (s) {
-                playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress);
+                playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress, globalSpeak);
               }
             }
           }

@@ -1060,11 +1060,12 @@ export function transcribeWithIflytek(
 
           if (text) {
             console.log(`[iflytekService] 🎙 识别文本: "${text}" (status=${result.data.status})`);
+            // ★ 修复：讯飞 IAT 流式返回，每帧只包含增量文本（如标点符号在最后一帧）。
+            // 必须拼接所有帧的文本，不能只取最后一帧（status=2）的文本。
+            partialText += text;
+            if (onProgress) onProgress(partialText);
             if (result.data.status === 2) {
-              finalText = text;
-            } else {
-              partialText = text;
-              if (onProgress) onProgress(partialText);
+              finalText = partialText;
             }
           } else if (result.data.status === 2) {
             console.log('[iflytekService] ⚠️ status=2 但无识别文本（静音或无法解码）');

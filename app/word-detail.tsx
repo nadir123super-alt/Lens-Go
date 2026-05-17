@@ -28,12 +28,12 @@ import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -511,17 +511,19 @@ const styles = StyleSheet.create({
   toastText: { fontSize: 15, fontWeight: '600', color: '#fff' },
 
   // Core
-  coreSection: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40 },
+  coreSection: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 11 },
   // 单词行（单词 + 发音按钮水平排列）
   wordRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     marginBottom: 4,
   },
   wordText: {
     fontSize: 36, fontWeight: '800', color: '#fff',
     letterSpacing: 1,
+    flexShrink: 1,
+    flexWrap: 'wrap',
   },
   speakInlineBtn: {
     width: 44,
