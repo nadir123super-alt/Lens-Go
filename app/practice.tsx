@@ -84,7 +84,7 @@ type Phase =
   | 'complete'
   | 'empty';
 
-const ANCHOR = '#FF6B6B';
+const ANCHOR = '#87CEEB';
 const SENTENCE_TRANSITION_DELAY = 1800;
 
 /**
@@ -1035,7 +1035,7 @@ export default function PracticeScreen() {
           {phase === 'permission_denied_toast' && (
             <View style={styles.toastOverlay}>
               <View style={styles.toastBox}>
-                <Feather name="mic-off" size={36} color="#FF3B30" />
+                <Feather name="mic-off" size={36} color="#3558CC" />
                 <Text style={styles.toastText}>麦克风权限未开启</Text>
                 <Text style={styles.toastSubText}>请前往「设置」→「隐私」→「麦克风」中开启权限</Text>
               </View>
@@ -1160,7 +1160,7 @@ export default function PracticeScreen() {
                             {
                               width: `${Math.max(5, normalizedVolume * 100)}%`,
                               backgroundColor: normalizedVolume > 0.5 ? '#34C759' :
-                                               normalizedVolume > 0.2 ? '#FFD93D' : '#FF6B6B'
+                                               normalizedVolume > 0.2 ? '#FFD93D' : '#5B7FFF'
                             }
                           ]}
                         />
@@ -1184,7 +1184,7 @@ export default function PracticeScreen() {
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
                 <Text style={styles.skipBtnText}>跳过</Text>
-                <Feather name="chevron-right" size={14} color="#FF4D4F" />
+                <Feather name="chevron-right" size={14} color="#4A6FE0" />
               </TouchableOpacity>
             )}
           </View>
@@ -1353,11 +1353,11 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   transText: {
-    fontSize: 28, fontWeight: '600', color: 'rgba(255,107,107,0.85)',
+    fontSize: 28, fontWeight: '600', color: 'rgba(135,206,235,0.85)',
     textAlign: 'center',
   },
   sentenceTransText: {
-    fontSize: 20, fontWeight: '600', color: 'rgba(255,107,107,0.85)',
+    fontSize: 20, fontWeight: '600', color: 'rgba(135,206,235,0.85)',
     textAlign: 'center',
   },
 
@@ -1372,7 +1372,7 @@ const styles = StyleSheet.create({
   // 发音按钮
   soundBtn: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,107,107,0.12)',
+    backgroundColor: 'rgba(135,206,235,0.12)',
     borderRadius: 14, paddingHorizontal: 20, paddingVertical: 12, gap: 8,
     minHeight: 48,
   },
@@ -1430,7 +1430,7 @@ const styles = StyleSheet.create({
     shadowColor: ANCHOR, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 12, elevation: 8,
   },
-  recordBtnActive: { backgroundColor: '#FF3B30' },
+  recordBtnActive: { backgroundColor: '#3558CC' },
   recordBtnDisabled: {
     width: 80, height: 80, borderRadius: 40,
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -1511,10 +1511,10 @@ const styles = StyleSheet.create({
     position: 'absolute', right: 4, bottom: 1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 4, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10,
-    backgroundColor: 'rgba(255,77,79,0.08)',
-    borderWidth: 1, borderColor: 'rgba(255,77,79,0.25)',
+    backgroundColor: 'rgba(74,111,224,0.08)',
+    borderWidth: 1, borderColor: 'rgba(74,111,224,0.25)',
   },
-  skipBtnText: { fontSize: 14, fontWeight: '700', color: '#FF4D4F' },
+  skipBtnText: { fontSize: 14, fontWeight: '700', color: '#4A6FE0' },
 
   // 网络错误
   networkErrorSection: { alignItems: 'center', gap: 14, width: '100%' },

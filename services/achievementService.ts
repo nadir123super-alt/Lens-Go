@@ -78,9 +78,9 @@ export interface BadgeDefinition {
   };
 }
 
-// ─── 20 个勋章定义 ────────────────────────────────────
+// ─── 22 个勋章定义 ────────────────────────────────────
 export const ALL_BADGES: BadgeDefinition[] = [
-  // ===== 基础 (8) =====
+  // ===== 基础成就 (9) =====
   {
     id: 'first_word',
     name: '初识世界',
@@ -91,12 +91,57 @@ export const ALL_BADGES: BadgeDefinition[] = [
     category: 'basic',
   },
   {
+    id: 'first_practice',
+    name: '初试啼声',
+    icon: 'mic',
+    description: '你已成功开启口语实战，大声说出来的感觉真棒 🎤',
+    unlockHint: '完成首次口语练习即可解锁',
+    color: COLORS.YELLOW,
+    category: 'basic',
+  },
+  {
+    id: 'voice_on',
+    name: '电波连线',
+    icon: 'phone-call',
+    description: '你完成了首次 AI 通话，电波那头传来了英语的声音 📡',
+    unlockHint: '完成一次 AI 实时通话即可解锁',
+    color: COLORS.PURPLE,
+    category: 'basic',
+  },
+  {
+    id: 'perfect_score',
+    name: '完美发音',
+    icon: 'star',
+    description: '100分的满分表现，你的发音简直无懈可击！⭐',
+    unlockHint: '任意一次口语练习获得满分 100 分',
+    color: COLORS.YELLOW_DARK,
+    category: 'basic',
+  },
+  {
+    id: 'persistent_learner',
+    name: '坚持不懈',
+    icon: 'calendar',
+    description: '整整 7 天的汗水，你已成功度过了习惯养成的第一周 💪',
+    unlockHint: '累计学习 7 天',
+    color: COLORS.CYAN,
+    category: 'basic',
+  },
+  {
     id: 'word_collector',
     name: '万物皆单词',
     icon: 'layers',
     description: '你已经拥有了将现实世界转化为词汇库的能力 🌍',
     unlockHint: '累计拍照识别 50 个不同单词即可解锁',
     color: COLORS.GREEN,
+    category: 'basic',
+  },
+  {
+    id: 'eloquent_speaker',
+    name: '语出惊人',
+    icon: 'message-circle',
+    description: '20次实战演练，你的口语表达已初见锋芒 🗣️',
+    unlockHint: '累计完成 20 次口语练习',
+    color: COLORS.CORAL,
     category: 'basic',
   },
   {
@@ -117,44 +162,8 @@ export const ALL_BADGES: BadgeDefinition[] = [
     color: COLORS.PURPLE,
     category: 'basic',
   },
-  {
-    id: 'vocab_master_100',
-    name: '百词达人',
-    icon: 'bookmark',
-    description: '100个高分单词标志着你的英语基础已固若金汤 🎯',
-    unlockHint: '掌握 100 个词汇（口语得分 >= 80 分）',
-    color: COLORS.PURPLE,
-    category: 'basic',
-  },
-  {
-    id: 'vocab_master_500',
-    name: '词汇大师',
-    icon: 'award',
-    description: '500个标准发音词汇，你已正式跨入英语高手行列 🏆',
-    unlockHint: '掌握 500 个词汇（口语得分 >= 80 分）',
-    color: COLORS.PURPLE,
-    category: 'basic',
-  },
-  {
-    id: 'first_practice',
-    name: '初试啼声',
-    icon: 'mic',
-    description: '你已成功开启口语实战，大声说出来的感觉真棒 🎤',
-    unlockHint: '完成首次口语练习即可解锁',
-    color: COLORS.YELLOW,
-    category: 'basic',
-  },
-  {
-    id: 'eloquent_speaker',
-    name: '语出惊人',
-    icon: 'message-circle',
-    description: '20次实战演练，你的口语表达已初见锋芒 🗣️',
-    unlockHint: '累计完成 20 次口语练习',
-    color: COLORS.CORAL,
-    category: 'basic',
-  },
 
-  // ===== 进阶 (6) =====
+  // ===== 进阶成就 (8) =====
   {
     id: 'golden_tongue',
     name: '黄金舌头',
@@ -162,15 +171,6 @@ export const ALL_BADGES: BadgeDefinition[] = [
     description: '连续三次 95+ 高分，你的发音简直是教科书级别 🏆',
     unlockHint: '口语练习连续 3 次获得 95 分以上',
     color: COLORS.YELLOW,
-    category: 'advanced',
-  },
-  {
-    id: 'perfect_score',
-    name: '完美发音',
-    icon: 'star',
-    description: '100分的满分表现，你的发音简直无懈可击！⭐',
-    unlockHint: '任意一次口语练习获得满分 100 分',
-    color: COLORS.YELLOW_DARK,
     category: 'advanced',
   },
   {
@@ -183,12 +183,30 @@ export const ALL_BADGES: BadgeDefinition[] = [
     category: 'advanced',
   },
   {
-    id: 'persistent_learner',
-    name: '坚持不懈',
-    icon: 'calendar',
-    description: '整整 7 天的汗水，你已成功度过了习惯养成的第一周 💪',
-    unlockHint: '累计学习 7 天',
-    color: COLORS.CYAN,
+    id: 'quick_scanner',
+    name: '快手扫描仪',
+    icon: 'fast-forward',
+    description: '手速惊人，你在 1 分钟内就捕捉到了 3 个新知识点！⚡',
+    unlockHint: '在 1 分钟内拍照识别 3 个不同单词',
+    color: COLORS.CORAL,
+    category: 'advanced',
+  },
+  {
+    id: 'deep_talk',
+    name: '聊得来',
+    icon: 'message-square',
+    description: '10 次深度对话，每次至少 3 分钟，你和 AI 已经成了好朋友 💬',
+    unlockHint: '累计 10 次通话时长超过 3 分钟',
+    color: COLORS.CORAL,
+    category: 'advanced',
+  },
+  {
+    id: 'chatterbox',
+    name: '煲电话粥',
+    icon: 'phone',
+    description: '累计通话超过 100 分钟，你已经是 AI 通话达人啦！☎️',
+    unlockHint: '累计 AI 通话总时长超过 100 分钟',
+    color: COLORS.GREEN,
     category: 'advanced',
   },
   {
@@ -201,16 +219,25 @@ export const ALL_BADGES: BadgeDefinition[] = [
     category: 'advanced',
   },
   {
-    id: 'quick_scanner',
-    name: '快手扫描仪',
-    icon: 'fast-forward',
-    description: '手速惊人，你在 1 分钟内就捕捉到了 3 个新知识点！⚡',
-    unlockHint: '在 1 分钟内拍照识别 3 个不同单词',
-    color: COLORS.CORAL,
+    id: 'vocab_master_100',
+    name: '百词达人',
+    icon: 'bookmark',
+    description: '100个高分单词标志着你的英语基础已固若金汤 🎯',
+    unlockHint: '掌握 100 个词汇（口语得分 >= 80 分）',
+    color: COLORS.PURPLE,
+    category: 'advanced',
+  },
+  {
+    id: 'vocab_master_500',
+    name: '词汇大师',
+    icon: 'award',
+    description: '500个标准发音词汇，你已正式跨入英语高手行列 🏆',
+    unlockHint: '掌握 500 个词汇（口语得分 >= 80 分）',
+    color: COLORS.PURPLE,
     category: 'advanced',
   },
 
-  // ===== 趣味 (6) =====
+  // ===== 趣味成就 (5) =====
   {
     id: 'midnight_learner',
     name: '深夜食堂',
@@ -842,6 +869,112 @@ export async function checkUnforgettable(
   return newlyUnlocked;
 }
 
+// ─── AI 通话成就检测 ──────────────────────────────────
+
+/**
+ * 检测并解锁「电波连线」
+ * 条件：oral_sessions 中当前用户的总行数 >= 1
+ */
+export async function checkVoiceOn(userId?: string): Promise<boolean> {
+  const uid = userId || await getCurrentUserId();
+  try {
+    const { count, error } = await supabase
+      .from('oral_sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', uid);
+
+    if (error) {
+      console.warn('⚠️ [achievement] checkVoiceOn 查询失败:', error.message);
+      return false;
+    }
+
+    if (count && count >= 1) {
+      return unlockBadge('voice_on', uid);
+    }
+  } catch (err: any) {
+    console.warn('⚠️ [achievement] checkVoiceOn 异常:', err?.message || err);
+  }
+  return false;
+}
+
+/**
+ * 检测并解锁「聊得来」
+ * 条件：oral_sessions 中当前用户 duration_seconds >= 180 的行数 >= 10
+ */
+export async function checkDeepTalk(userId?: string): Promise<boolean> {
+  const uid = userId || await getCurrentUserId();
+  try {
+    const { count, error } = await supabase
+      .from('oral_sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', uid)
+      .gte('duration_seconds', 180);
+
+    if (error) {
+      console.warn('⚠️ [achievement] checkDeepTalk 查询失败:', error.message);
+      return false;
+    }
+
+    if (count && count >= 10) {
+      return unlockBadge('deep_talk', uid);
+    }
+  } catch (err: any) {
+    console.warn('⚠️ [achievement] checkDeepTalk 异常:', err?.message || err);
+  }
+  return false;
+}
+
+/**
+ * 检测并解锁「煲电话粥」
+ * 条件：oral_sessions 中当前用户 SUM(duration_seconds) >= 6000
+ */
+export async function checkChatterbox(userId?: string): Promise<boolean> {
+  const uid = userId || await getCurrentUserId();
+  try {
+    const { data, error } = await supabase
+      .from('oral_sessions')
+      .select('duration_seconds')
+      .eq('user_id', uid);
+
+    if (error) {
+      console.warn('⚠️ [achievement] checkChatterbox 查询失败:', error.message);
+      return false;
+    }
+
+    const totalSeconds = (data || []).reduce((sum, row) => sum + (row.duration_seconds || 0), 0);
+
+    if (totalSeconds >= 6000) {
+      return unlockBadge('chatterbox', uid);
+    }
+  } catch (err: any) {
+    console.warn('⚠️ [achievement] checkChatterbox 异常:', err?.message || err);
+  }
+  return false;
+}
+
+/**
+ * AI 通话结束后调用：检测所有与 AI 通话相关的勋章
+ * @returns 新解锁的勋章 ID 列表
+ */
+export async function checkOralAchievements(userId?: string): Promise<string[]> {
+  const uid = userId || await getCurrentUserId();
+  const newlyUnlocked: string[] = [];
+  console.log(`🎯 [achievement] checkOralAchievements 被调用: uid=${uid}`);
+
+  const results = await Promise.all([
+    checkVoiceOn(uid),
+    checkDeepTalk(uid),
+    checkChatterbox(uid),
+  ]);
+
+  if (results[0]) newlyUnlocked.push('voice_on');
+  if (results[1]) newlyUnlocked.push('deep_talk');
+  if (results[2]) newlyUnlocked.push('chatterbox');
+
+  console.log(`📊 [achievement] checkOralAchievements 结果: newlyUnlocked=${newlyUnlocked.join(', ')}`);
+  return newlyUnlocked;
+}
+
 // ─── 一键检测（拍照后调用） ──────────────────────────
 
 /**
@@ -1017,6 +1150,7 @@ export async function getAllBadgesWithRealProgress(
       checkPerfectScore(uid),
       checkFirstWord(uid),
       checkWordCollector(uid),
+      checkOralAchievements(uid),
     ]);
   } catch (err: any) {
     console.warn('⚠️ [achievement] getAllBadgesWithRealProgress 成就检查异常:', err?.message || err);
@@ -1029,6 +1163,9 @@ export async function getAllBadgesWithRealProgress(
   let cameraCount = 0;
   let practiceCount = 0;
   let studyDays = 0;
+  let oralSessionCount = 0;
+  let oralDeepTalkCount = 0;
+  let oralTotalSeconds = 0;
 
   try {
     const cameraCountResult = await supabase
@@ -1058,10 +1195,43 @@ export async function getAllBadgesWithRealProgress(
     }
   } catch (_) { /* study_logs 表可能不存在 */ }
 
+  try {
+    const { count, error } = await supabase
+      .from('oral_sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', uid);
+    if (!error) oralSessionCount = count ?? 0;
+  } catch (_) { /* 忽略 */ }
+
+  try {
+    const { count, error } = await supabase
+      .from('oral_sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', uid)
+      .gte('duration_seconds', 180);
+    if (!error) oralDeepTalkCount = count ?? 0;
+  } catch (_) { /* 忽略 */ }
+
+  try {
+    const { data, error } = await supabase
+      .from('oral_sessions')
+      .select('duration_seconds')
+      .eq('user_id', uid);
+    if (!error) {
+      oralTotalSeconds = (data || []).reduce((sum, row) => sum + (row.duration_seconds || 0), 0);
+    }
+  } catch (_) { /* 忽略 */ }
+
   return ALL_BADGES.map((badge) => {
     let progress: { current: number; target: number } | undefined;
 
     switch (badge.id) {
+      case 'first_word':
+        progress = { current: Math.min(cameraCount, 1), target: 1 };
+        break;
+      case 'first_practice':
+        progress = { current: Math.min(practiceCount, 1), target: 1 };
+        break;
       case 'word_collector':
         progress = { current: Math.min(cameraCount, 50), target: 50 };
         break;
@@ -1090,6 +1260,25 @@ export async function getAllBadgesWithRealProgress(
         break;
       case 'study_enthusiast':
         progress = { current: Math.min(studyDays, 30), target: 30 };
+        break;
+      case 'voice_on':
+        progress = { current: Math.min(oralSessionCount, 1), target: 1 };
+        break;
+      case 'deep_talk':
+        progress = { current: Math.min(oralDeepTalkCount, 10), target: 10 };
+        break;
+      case 'chatterbox':
+        progress = { current: Math.min(oralTotalSeconds, 6000), target: 6000 };
+        break;
+      case 'golden_tongue':
+      case 'perfect_score':
+      case 'quick_scanner':
+      case 'midnight_learner':
+      case 'light_catcher':
+      case 'afternoon_translator':
+      case 'street_reporter':
+      case 'unforgettable':
+        progress = { current: 0, target: 1 };
         break;
     }
 

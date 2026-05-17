@@ -111,7 +111,7 @@ function TimePicker({
 const timeStyles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
     borderRadius: 16,
     padding: 16,
     flex: 1,
@@ -256,7 +256,7 @@ function SpeechRateSlider({
 
 const sliderStyles = StyleSheet.create({
   container: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
     borderRadius: 16,
     padding: 20,
   },
@@ -571,14 +571,14 @@ export default function SettingsScreen() {
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#121212',
+    backgroundColor: '#1a1a1a',
   },
   backBtn: {
     width: 44,
@@ -597,7 +597,7 @@ const s = StyleSheet.create({
   },
   scroll: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: '#1a1a1a',
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -618,7 +618,7 @@ const s = StyleSheet.create({
     marginLeft: 8,
   },
   card: {
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 18,
     padding: 16,
     shadowColor: '#000',
@@ -628,7 +628,7 @@ const s = StyleSheet.create({
     elevation: 3,
   },
   tipsCard: {
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
     borderRadius: 18,
     padding: 16,
     marginTop: 12,

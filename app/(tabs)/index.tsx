@@ -56,7 +56,7 @@ function StatCard({ value, label, icon, color }: {
 }
 const statStyles = StyleSheet.create({
   card: {
-    flex: 1, alignItems: 'center', backgroundColor: '#262626', borderRadius: 18,
+    flex: 1, alignItems: 'center', backgroundColor: '#2a2a2a', borderRadius: 18,
     paddingVertical: 18, paddingHorizontal: 8,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.12, shadowRadius: 8, elevation: 3,
@@ -355,7 +355,7 @@ export default function HomeScreen() {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
+  container: { flex: 1, backgroundColor: '#1a1a1a' },
   scroll: { flex: 1 },
 
   /* ── 顶部个人资料 ── */
@@ -386,7 +386,7 @@ const s = StyleSheet.create({
     marginBottom: 10, marginLeft: 4,
   },
   menuCard: {
-    backgroundColor: '#262626', borderRadius: 18, overflow: 'hidden',
+    backgroundColor: '#2a2a2a', borderRadius: 18, overflow: 'hidden',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12, shadowRadius: 6, elevation: 2,
   },
@@ -402,7 +402,7 @@ const s = StyleSheet.create({
   },
   unlockCard: {
     width: '100%',
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 28,
     alignItems: 'center',
     paddingBottom: 32,
@@ -423,7 +423,7 @@ const s = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
     borderWidth: 4,
     alignItems: 'center',
     justifyContent: 'center',

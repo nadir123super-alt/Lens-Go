@@ -247,7 +247,7 @@ export default function SettingsDetailScreen() {
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121212',
+    backgroundColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',
@@ -255,7 +255,7 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#121212',
+    backgroundColor: '#1a1a1a',
     borderBottomWidth: 1,
     borderBottomColor: '#1E1E1E',
   },
@@ -276,7 +276,7 @@ const s = StyleSheet.create({
     paddingTop: 20,
   },
   card: {
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
@@ -301,14 +301,14 @@ const s = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     overflow: 'hidden',
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
   },
   avatarPlaceholder: {
     width: '100%',
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
   },
   avatarInfo: {
     flex: 1,
@@ -342,7 +342,7 @@ const s = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
     marginVertical: 8,
   },
   bottomActions: {
@@ -356,7 +356,7 @@ const s = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     borderRadius: 12,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
   },
   deleteText: {
     fontSize: 16,
@@ -368,7 +368,7 @@ const s = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     borderRadius: 12,
-    backgroundColor: '#2A2A2A',
+    backgroundColor: '#2a2a2a',
   },
   logoutText: {
     fontSize: 16,

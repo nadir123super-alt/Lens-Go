@@ -288,7 +288,7 @@ export default function SearchScreen() {
               {state === 'idle' && !showSuggestions && (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconWrap}>
-                    <Feather name="search" size={48} color="#FF6B6B" />
+                    <Feather name="search" size={48} color="#90EE90" />
                   </View>
                   <Text style={styles.emptyText}>想学哪个词？随时问我。</Text>
                   <Text style={styles.emptySubText}>输入英文或中文，实时搜索词典</Text>
@@ -323,7 +323,7 @@ export default function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
+  container: { flex: 1, backgroundColor: '#1a1a1a' },
   flex: { flex: 1 },
 
   // 搜索框
@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 12,
     paddingHorizontal: 14,
     height: 48,
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: 20,
     borderRadius: 12,
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#90EE90',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   // 模糊联想
   suggestionsContainer: {
     marginHorizontal: 20,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
@@ -384,7 +384,7 @@ const styles = StyleSheet.create({
   suggestionWord: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
   suggestionPhonetic: { fontSize: 13, color: '#BBBBBB' },
   suggestionTrans: { fontSize: 14, color: '#BBBBBB', flexShrink: 1, maxWidth: '45%', textAlign: 'right' },
-  suggestionHighlight: { backgroundColor: '#FF6B6B', color: '#FFFFFF', borderRadius: 2 },
+  suggestionHighlight: { backgroundColor: '#90EE90', color: '#FFFFFF', borderRadius: 2 },
 
   // 内容区
   contentArea: { flex: 1 },
@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyIconWrap: {
     width: 96, height: 96, borderRadius: 48,
-    backgroundColor: 'rgba(255,107,107,0.12)',
+    backgroundColor: 'rgba(68,214,108,0.12)',
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 20,
   },
@@ -407,14 +407,14 @@ const styles = StyleSheet.create({
 
   // 未找到
   errorState: { alignItems: 'center', paddingTop: 60 },
-  errorText: { fontSize: 18, fontWeight: '700', color: '#FF6B6B', marginTop: 16, textAlign: 'center' },
+  errorText: { fontSize: 18, fontWeight: '700', color: '#90EE90', marginTop: 16, textAlign: 'center' },
   errorSubText: { fontSize: 14, color: '#BBBBBB', marginTop: 8, textAlign: 'center', lineHeight: 20 },
   retryButton: {
     marginTop: 20,
     paddingHorizontal: 32,
     paddingVertical: 12,
     borderRadius: 10,
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#90EE90',
   },
   retryButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
@@ -433,9 +433,9 @@ const styles = StyleSheet.create({
   wordActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   speakButton: {
     width: 52, height: 52, borderRadius: 26,
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#90EE90',
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#FF6B6B', shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#90EE90', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
 
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#90EE90',
     gap: 8,
   },
   detailButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },

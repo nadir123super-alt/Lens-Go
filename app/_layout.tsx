@@ -84,6 +84,7 @@ function RootLayoutInner() {
       <Stack.Screen name="practice" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="evaluation-summary" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="word-detail" options={{ headerShown: false, presentation: 'card' }} />
+      <Stack.Screen name="oral-history" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="settings-detail" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="edit-nickname" options={{ headerShown: false, presentation: 'card' }} />
       <Stack.Screen name="bind-phone" options={{ headerShown: false, presentation: 'card' }} />

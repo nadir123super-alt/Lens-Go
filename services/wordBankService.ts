@@ -68,16 +68,24 @@ export async function upsertWordToBank(
   }
 
   try {
+    // search_word_bank 用 translation 列，shared_word_bank 用 definition 列
+    const isSearchBank = tableName === 'search_word_bank';
+    const upsertData: Record<string, any> = {
+      word: word.toLowerCase(),
+      example_en_1,
+      example_cn_1,
+      example_en_2,
+      example_cn_2,
+    };
+    if (isSearchBank) {
+      upsertData.translation = definition;
+    } else {
+      upsertData.definition = definition;
+    }
+
     const { error } = await supabase
       .from(tableName)
-      .upsert({
-        word: word.toLowerCase(),
-        definition,
-        example_en_1,
-        example_cn_1,
-        example_en_2,
-        example_cn_2,
-      }, {
+      .upsert(upsertData, {
         onConflict: 'word',
       });
 

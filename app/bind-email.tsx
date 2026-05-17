@@ -169,7 +169,7 @@ export default function BindEmailScreen() {
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',
@@ -177,7 +177,7 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#1a1a1a',
     borderBottomWidth: 1,
     borderBottomColor: '#1E1E1E',
   },
@@ -205,7 +205,7 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   inputWrapper: {
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 12,
     paddingHorizontal: 16,
     height: 48,

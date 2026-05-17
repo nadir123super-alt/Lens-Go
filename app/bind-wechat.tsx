@@ -102,7 +102,7 @@ export default function BindWechatScreen() {
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#1a1a1a',
   },
   header: {
     flexDirection: 'row',
@@ -110,7 +110,7 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#1a1a1a',
     borderBottomWidth: 1,
     borderBottomColor: '#1E1E1E',
   },
@@ -138,7 +138,7 @@ const s = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     alignItems: 'center',
     justifyContent: 'center',
   },

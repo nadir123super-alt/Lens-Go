@@ -342,7 +342,7 @@ function formatDate(isoStr: string): string {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
+  container: { flex: 1, backgroundColor: '#1a1a1a' },
 
   /* ── 顶部 ── */
   header: { 
@@ -453,7 +453,7 @@ const s = StyleSheet.create({
     padding: 40,
   },
   modalContent: {
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 24,
     padding: 32,
     alignItems: 'center',

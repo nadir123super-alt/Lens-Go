@@ -13,27 +13,30 @@
  * - 硅基流动 Qwen2.5-72B-Instruct LLM 中英混说智能纠错
  * - 系统原生 TTS（expo-speech）播放 AI 回复，onDone 回调自动重启录音
  * - 防回音状态锁：TTS 播放期间完全阻断麦克风和 VAD
+ * - 通话历史记录功能
  */
 import { Feather } from '@expo/vector-icons';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Easing,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Animated,
+    Easing,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AchievementUnlockModal from '../../components/AchievementUnlockModal';
+import { checkOralAchievements } from '../../services/achievementService';
 import { ConversationMessage, getAiReply, transcribeAudio } from '../../services/aiConversationService';
+import { saveOralSession } from '../../services/oralHistoryService';
 import { playText, stopAll } from '../../services/soundManager';
-
-// ====== 类型定义 ======
+import { logStudyDate } from '../../services/studyStatsService';
 type CallStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 interface Message {
@@ -96,6 +99,9 @@ export default function AIConversationScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [aiText, setAiText] = useState('');
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(WAVEFORM_BARS).fill(0));
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [achievementModalVisible, setAchievementModalVisible] = useState(false);
+  const [newlyUnlockedBadgeId, setNewlyUnlockedBadgeId] = useState<string>('');
 
   // ── 动画 ──
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -118,6 +124,10 @@ export default function AIConversationScreen() {
 
   // ── 对话历史（用于 LLM 上下文） ──
   const conversationHistoryRef = useRef<ConversationMessage[]>([]);
+  const callStartTimeRef = useRef(0);
+  const totalCallDurationRef = useRef(0);
+  const callDurationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const endCallRef = useRef<(() => void) | null>(null);
 
   // ── STT/LLM 处理中标志 ──
   const [isProcessing, setIsProcessing] = useState(false);
@@ -197,7 +207,7 @@ export default function AIConversationScreen() {
     inactivityTimerRef.current = setTimeout(() => {
       if (isMountedRef.current) {
         console.log('[AIConversation] 2分钟无活动，自动挂断');
-        endCall();
+        endCallRef.current?.();
       }
     }, INACTIVITY_TIMEOUT_MS);
   }, [isActive]);
@@ -487,6 +497,14 @@ export default function AIConversationScreen() {
     vadLockedRef.current = false;
     setIsProcessing(false);
     conversationHistoryRef.current = [];
+    callStartTimeRef.current = Date.now();
+    totalCallDurationRef.current = 0;
+
+    // 启动通话时长计数器（每秒 +1）
+    if (callDurationTimerRef.current) clearInterval(callDurationTimerRef.current);
+    callDurationTimerRef.current = setInterval(() => {
+      totalCallDurationRef.current += 1;
+    }, 1000);
 
     // 随机选开场白
     const opening = getRandomOpening();
@@ -522,11 +540,47 @@ export default function AIConversationScreen() {
   }, [resetInactivityTimer, startRecording]);
 
   // ====== 结束通话 ======
-  const endCall = useCallback(() => {
+  const endCall = useCallback(async () => {
     clearInactivityTimer();
     cleanupRecording();
-    // 停止 TTS 播放
     stopAll();
+
+    // 停止通话时长计数器
+    if (callDurationTimerRef.current) {
+      clearInterval(callDurationTimerRef.current);
+      callDurationTimerRef.current = null;
+    }
+
+    // 计算通话时长并保存记录
+    const duration = callStartTimeRef.current > 0 ? Math.floor((Date.now() - callStartTimeRef.current) / 1000) : 0;
+    const userMessages = conversationHistoryRef.current
+      .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    if (userMessages.length > 0) {
+      console.log('[AIConversation] 保存对话记录，共', userMessages.length, '条消息');
+      await saveOralSession(userMessages, duration);
+
+      // 通话记录保存成功后，触发 AI 通话成就检测
+      const newlyUnlocked = await checkOralAchievements();
+      if (newlyUnlocked.length > 0 && isMountedRef.current) {
+        setNewlyUnlockedBadgeId(newlyUnlocked[0]);
+        setAchievementModalVisible(true);
+      }
+    }
+
+    // 检查是否满足 3 分钟打卡条件
+    const totalDuration = totalCallDurationRef.current;
+    if (totalDuration >= 180) {
+      console.log('[AIConversation] 通话时长', totalDuration, '秒，满足3分钟打卡条件');
+      await logStudyDate('practice');
+      if (isMountedRef.current) {
+        setToastMessage('🎉 恭喜！今日 AI 通话满 3 分钟，已成功点亮今日学习天数！');
+        setTimeout(() => {
+          if (isMountedRef.current) setToastMessage(null);
+        }, 4000);
+      }
+    }
+
     setIsActive(false);
     setStatus('idle');
     setAiText('');
@@ -534,8 +588,12 @@ export default function AIConversationScreen() {
     vadLockedRef.current = false;
     setIsProcessing(false);
     conversationHistoryRef.current = [];
-    router.back();
-  }, [router, cleanupRecording]);
+    callStartTimeRef.current = 0;
+    totalCallDurationRef.current = 0;
+  }, [cleanupRecording]);
+
+  // 同步 endCall 到 ref（供 resetInactivityTimer 使用）
+  endCallRef.current = endCall;
 
   // ====== 状态文本 ======
   const getStatusText = (): string => {
@@ -571,6 +629,14 @@ export default function AIConversationScreen() {
         {isActive && (
           <Text style={styles.timerHint}>2分钟内无声音将自动挂断</Text>
         )}
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={() => router.push('/oral-history')}
+          activeOpacity={0.7}
+        >
+          <Feather name="clock" size={18} color="#A78BFA" />
+          <Text style={styles.historyButtonText}>历史对话</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ── 中心区域 ── */}
@@ -706,6 +772,20 @@ export default function AIConversationScreen() {
           </View>
         )}
       </View>
+
+      {/* 打卡成功 Toast */}
+      {toastMessage && (
+        <View style={styles.toast}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </View>
+      )}
+
+      {/* 成就解锁弹窗 */}
+      <AchievementUnlockModal
+        isVisible={achievementModalVisible}
+        badgeId={newlyUnlockedBadgeId}
+        onClose={() => setAchievementModalVisible(false)}
+      />
     </View>
   );
 }
@@ -714,7 +794,23 @@ export default function AIConversationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F0A2E',
+    backgroundColor: '#1a1a1a',
+  },
+  historyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(167, 139, 250, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(167, 139, 250, 0.2)',
+  },
+  historyButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#A78BFA',
   },
 
   // ── 顶部栏 ──
@@ -891,5 +987,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+  },
+
+  // ── Toast ──
+  toast: {
+    position: 'absolute',
+    bottom: 120,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(16, 185, 129, 0.95)',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 100,
+  },
+  toastText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+    textAlign: 'center',
+    lineHeight: 22,
   },
 });

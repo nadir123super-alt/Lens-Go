@@ -596,7 +596,7 @@ const styles = StyleSheet.create({
     fontSize: 18, fontWeight: '700', color: '#fff', marginBottom: 12,
   },
   exampleCard: {
-    backgroundColor: '#262626', borderRadius: 14,
+    backgroundColor: '#2a2a2a', borderRadius: 14,
     padding: 16, marginBottom: 12,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },

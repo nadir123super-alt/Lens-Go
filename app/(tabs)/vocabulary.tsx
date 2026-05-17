@@ -333,7 +333,7 @@ function VocabCard({
               <View
                 style={[
                   styles.cardThumbIcon,
-                  { backgroundColor: item.source === 'camera' ? '#FF6B6B' : '#4A90D9' },
+                  { backgroundColor: item.source === 'camera' ? '#FF8C42' : '#FFB366' },
                 ]}
               >
               <Ionicons
@@ -356,8 +356,8 @@ function VocabCard({
               </Text>
             </View>
             <View style={styles.cardMeta}>
-              <View style={styles.sourceDot}>
-                <Text style={styles.sourceDotText}>
+              <View style={[styles.sourceDot, { backgroundColor: item.source === 'camera' ? 'rgba(255,140,66,0.12)' : 'rgba(255,179,102,0.12)' }]}>
+                <Text style={[styles.sourceDotText, { color: item.source === 'camera' ? '#FF8C42' : '#FFB366' }]}>
                   {item.source === 'camera' ? '📷' : '🔍'}
                 </Text>
               </View>
@@ -374,13 +374,13 @@ function VocabCard({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#121212' },
+  container: { flex: 1, backgroundColor: '#1a1a1a' },
 
   // ===== 顶部 =====
   header: {
     paddingHorizontal: 20,
     paddingBottom: 12,
-    backgroundColor: '#121212',
+    backgroundColor: '#1a1a1a',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E1E1E',
+    backgroundColor: '#2a2a2a',
     borderRadius: 10,
     paddingHorizontal: 10,
     height: 38,
@@ -423,7 +423,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: 'rgba(255,107,107,0.12)',
+    backgroundColor: 'rgba(255,140,66,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
@@ -449,7 +449,7 @@ const styles = StyleSheet.create({
 
   // ===== 卡片 =====
   card: {
-    backgroundColor: '#262626',
+    backgroundColor: '#2a2a2a',
     borderRadius: 12,
     marginBottom: 8,
     shadowColor: '#000',
@@ -492,12 +492,12 @@ const styles = StyleSheet.create({
   },
   cardMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 },
   sourceDot: {
-    backgroundColor: 'rgba(255,107,107,0.12)',
+    backgroundColor: 'rgba(255,140,66,0.12)',
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 1,
   },
-  sourceDotText: { fontSize: 11, color: '#FF6B6B', fontWeight: '600' },
+  sourceDotText: { fontSize: 11, color: '#FF8C42', fontWeight: '600' },
   cardTime: { fontSize: 11, color: '#BBBBBB' },
 
   // ===== 右：箭头 =====

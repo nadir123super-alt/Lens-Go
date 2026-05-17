@@ -1353,11 +1353,17 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.5)',
   },
   dockActionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  retakeBtn: {},
-  analyzeBtn: {},
+  retakeBtn: {
+    backgroundColor: 'rgba(255,107,157,0.25)',
+    borderColor: 'rgba(255,107,157,0.6)',
+  },
+  analyzeBtn: {
+    backgroundColor: 'rgba(255,107,157,0.25)',
+    borderColor: 'rgba(255,107,157,0.6)',
+  },
   analyzedBtn: {
-    backgroundColor: 'rgba(52,199,89,0.25)',
-    borderColor: 'rgba(52,199,89,0.6)',
+    backgroundColor: 'rgba(255,107,157,0.25)',
+    borderColor: 'rgba(255,107,157,0.6)',
   },
 
   // DetailCard

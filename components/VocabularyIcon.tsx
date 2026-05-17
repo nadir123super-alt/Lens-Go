@@ -7,7 +7,7 @@ interface VocabularyIconProps {
   focused?: boolean;
 }
 
-const VOCABULARY_COLOR = '#576ad6';
+const VOCABULARY_COLOR = '#FF8C42';
 
 const VocabularyIcon = ({ color = 'rgba(0,0,0,0.35)', size = 28, focused = false }: VocabularyIconProps) => {
   const fillColor = focused ? VOCABULARY_COLOR : color;
