@@ -13,19 +13,20 @@ import { Feather } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useGlobalSpeech } from '@/hooks/useGlobalSpeech';
 import { usePracticeContext } from '@/services/practiceContext';
 import {
-  getAverageScore,
-  getScoreFeedback,
-  isAllPerfect
+    getAverageScore,
+    getScoreFeedback,
+    isAllPerfect
 } from '@/services/practiceService';
 
 const ANCHOR = '#FF6B6B';
@@ -33,6 +34,7 @@ const ANCHOR = '#FF6B6B';
 export default function EvaluationSummaryScreen() {
   const insets = useSafeAreaInsets();
   const { lastScores, resetPractice } = usePracticeContext();
+  const { stop: stopGlobalSpeech } = useGlobalSpeech();
 
   // 直接从 Context 读取成绩，不依赖组件内临时内存
   const scores = lastScores;
@@ -40,13 +42,9 @@ export default function EvaluationSummaryScreen() {
   const perfect = isAllPerfect(scores);
 
   const handleRestart = async () => {
-    // 1. 先停止所有播放
-    try {
-      const { stopAll } = await import('@/services/soundManager');
-      stopAll();
-    } catch {}
+    stopGlobalSpeech();
 
-    // 2. 预取新一组单词（优先未评测，次之低分）
+    // 预取新一组单词（优先未评测，次之低分）
     try {
       const { fetchNextPracticeSet, setPendingSession } = await import(
         '@/services/practiceService'

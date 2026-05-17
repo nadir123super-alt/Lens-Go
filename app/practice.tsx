@@ -25,48 +25,49 @@
  *    - initSession 只挂载时执行一次，不重置状态
  */
 import AchievementUnlockModal from '@/components/AchievementUnlockModal';
+import { useGlobalSpeech } from '@/hooks/useGlobalSpeech';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Animated,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { consumePreloadedPractice } from '@/services/dataPreloader';
 import { usePracticeContext } from '@/services/practiceContext';
 import {
-  consumePendingSession,
-  evaluateSpeechWithRetry,
-  fetchNextPracticeSet,
-  fillSkippedScores,
-  getCurrentSentence,
-  getCurrentWord,
-  getScoreFeedback,
-  isAllPerfect,
-  PracticeSession,
-  recordStageScore,
-  savePendingScores,
-  skipCard,
-  TaskStage
+    consumePendingSession,
+    evaluateSpeechWithRetry,
+    fetchNextPracticeSet,
+    fillSkippedScores,
+    getCurrentSentence,
+    getCurrentWord,
+    getScoreFeedback,
+    isAllPerfect,
+    PracticeSession,
+    recordStageScore,
+    savePendingScores,
+    skipCard,
+    TaskStage
 } from '@/services/practiceService';
 import {
-  forceStopRecording,
-  requestAudioPermission,
-  setAutoStopCallback,
-  setVolumeMeteringCallback,
-  startRecording,
-  stopRecordingWithVolume,
-  VOLUME_THRESHOLD_DB
+    forceStopRecording,
+    requestAudioPermission,
+    setAutoStopCallback,
+    setVolumeMeteringCallback,
+    startRecording,
+    stopRecordingWithVolume,
+    VOLUME_THRESHOLD_DB
 } from '@/services/recordingService';
-import { stopAll } from '@/services/soundManager';
+
 import { recordLearningActivity } from '@/services/studyStatsService';
-import { destroyTTS, initTTS, playTextWithCharProgress, stopTTS } from '@/services/ttsService';
+import { destroyTTS, initTTS, stopTTS } from '@/services/ttsService';
 
 type Phase =
   | 'ready'
@@ -89,38 +90,41 @@ const SENTENCE_TRANSITION_DELAY = 1800;
 
 /**
  * 播放文本并更新高亮进度（KTV式字符级同步高亮）
- * 使用 react-native-tts 的实时字符进度回调
+ * 使用全局 TTS 的实时字符进度回调
  */
 function playWithHighlightHelper(
-  text: string, 
-  isWordMode: boolean, 
+  text: string,
+  isWordMode: boolean,
   setHighlightProgress: React.SetStateAction<number> | ((value: React.SetStateAction<number>) => void),
-  setCharProgress?: (value: React.SetStateAction<number>) => void
+  setCharProgress?: (value: React.SetStateAction<number>) => void,
+  speakFn?: (text: string, onDone?: () => void, onGlobalCharProgress?: (charIndex: number) => void) => void
 ) {
   // 确保是函数类型
-  const setProgress = typeof setHighlightProgress === 'function' 
-    ? setHighlightProgress 
+  const setProgress = typeof setHighlightProgress === 'function'
+    ? setHighlightProgress
     : () => {};
-  
+
   const setChar = typeof setCharProgress === 'function'
     ? setCharProgress
     : () => {};
-    
+
   // 重置进度（同时重置，避免闪烁）
   setProgress(0);
   setChar(0);
-  
+
   if (isWordMode) {
     // 单词模式：直接使用 TTS 的字符进度回调，逐个字母点亮
-    playTextWithCharProgress(
-      text,
-      () => setProgress(text.length),
-      (charIndex) => setProgress(charIndex)
-    );
+    if (speakFn) {
+      speakFn(
+        text,
+        () => setProgress(text.length),
+        (charIndex) => setProgress(charIndex)
+      );
+    }
   } else {
     // 例句模式：使用 TTS 的字符进度回调，追踪当前单词和字母位置
     const words = text.split(/\s+/).filter(w => w.length > 0);
-    
+
     // 预计算每个单词的起始字符位置（用于快速查找）
     const wordStartPositions: number[] = [];
     let position = 0;
@@ -128,35 +132,37 @@ function playWithHighlightHelper(
       wordStartPositions.push(position);
       position += word.length + 1; // +1 用于空格
     });
-    
-    playTextWithCharProgress(
-      text,
-      () => {
-        // 播放完成
-        setProgress(words.length);
-        setChar(0);
-      },
-      (charIndex) => {
-        // TTS 引擎实时回调：当前正在播放的字符索引
-        // 找到当前字符属于哪个单词
-        let currentWordIndex = words.length - 1;
-        for (let i = 0; i < words.length; i++) {
-          const nextStart = i < words.length - 1 ? wordStartPositions[i + 1] : text.length;
-          if (charIndex >= wordStartPositions[i] && charIndex < nextStart) {
-            currentWordIndex = i;
-            break;
+
+    if (speakFn) {
+      speakFn(
+        text,
+        () => {
+          // 播放完成
+          setProgress(words.length);
+          setChar(0);
+        },
+        (charIndex) => {
+          // TTS 引擎实时回调：当前正在播放的字符索引
+          // 找到当前字符属于哪个单词
+          let currentWordIndex = words.length - 1;
+          for (let i = 0; i < words.length; i++) {
+            const nextStart = i < words.length - 1 ? wordStartPositions[i + 1] : text.length;
+            if (charIndex >= wordStartPositions[i] && charIndex < nextStart) {
+              currentWordIndex = i;
+              break;
+            }
           }
+
+          // 计算当前单词内的字符位置
+          const charInWord = charIndex - wordStartPositions[currentWordIndex];
+          const wordLength = words[currentWordIndex]?.length || 0;
+
+          // 更新状态
+          setProgress(currentWordIndex);
+          setChar(Math.min(charInWord, wordLength));
         }
-        
-        // 计算当前单词内的字符位置
-        const charInWord = charIndex - wordStartPositions[currentWordIndex];
-        const wordLength = words[currentWordIndex]?.length || 0;
-        
-        // 更新状态
-        setProgress(currentWordIndex);
-        setChar(Math.min(charInWord, wordLength));
-      }
-    );
+      );
+    }
   }
 }
 
@@ -211,6 +217,9 @@ export default function PracticeScreen() {
   const [showAchievementModal, setShowAchievementModal] = useState(false);
   const [unlockedBadgeId, setUnlockedBadgeId] = useState('');
 
+  // ====== 全局 TTS 发音管理器 ======
+  const { speak: globalSpeak, stop: stopGlobalSpeech } = useGlobalSpeech();
+
   useEffect(() => {
     // 初始化 TTS 引擎（支持字符级进度回调）
     initTTS().catch((e) => {
@@ -227,9 +236,9 @@ export default function PracticeScreen() {
     return () => {
       if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
       forceStopRecording();
-      stopTTS(); // 使用新的 TTS 停止函数
-      stopAll();
-      destroyTTS(); // 销毁 TTS 引擎
+      stopTTS();
+      stopGlobalSpeech();
+      destroyTTS();
       console.log('[practice] 🧹 组件卸载，已清理录音 + TTS 资源');
     };
   }, []);
@@ -317,8 +326,14 @@ export default function PracticeScreen() {
       setPhase('empty');
     } else {
       animateIn();
+      
+      // 预加载当前单词和例句的音频
+      const w = getCurrentWord(s);
+      const sentence = getCurrentSentence(s);
+      if (w) edgeTtsService.preload(w.word, 'en');
+      if (sentence) edgeTtsService.preload(sentence, 'en');
+      
       setTimeout(() => {
-        const w = getCurrentWord(s);
         if (w) playWithHighlightHelper(w.word, true, setHighlightProgress);
       }, 400);
     }
@@ -349,13 +364,16 @@ export default function PracticeScreen() {
       setPhase('sentence_ready');
       setHighlightProgress(0); // 立即重置高亮进度，避免先亮后灰
 
+      // 预加载例句的音频（虽然已经在 initSession 预加载了，这里再确保一下）
+      const s = getCurrentSentence(updatedSession);
+      if (s) edgeTtsService.preload(s, 'en');
+
       Animated.timing(contentFadeAnim, {
         toValue: 1,
         duration: 200,
         useNativeDriver: true,
       }).start();
 
-      const s = getCurrentSentence(updatedSession);
       if (s) {
         setTimeout(() => playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress), 300);
       }
@@ -376,8 +394,14 @@ export default function PracticeScreen() {
     setCurrentWordCharProgress(0); // 重置字母进度
     contentFadeAnim.setValue(1);
     animateIn();
+    
+    // 预加载下一个单词和例句的音频
+    const w = getCurrentWord(effectiveSession!);
+    const sentence = getCurrentSentence(effectiveSession!);
+    if (w) edgeTtsService.preload(w.word, 'en');
+    if (sentence) edgeTtsService.preload(sentence, 'en');
+    
     setTimeout(() => {
-      const w = getCurrentWord(effectiveSession!);
       if (w) playWithHighlightHelper(w.word, true, setHighlightProgress);
     }, 100);
   };
@@ -395,7 +419,7 @@ export default function PracticeScreen() {
     }
 
     if (phase === 'recording') await forceStopRecording();
-    stopAll();
+    stopGlobalSpeech();
     if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; }
 
     const updatedSession = skipCard(session);
@@ -412,18 +436,18 @@ export default function PracticeScreen() {
   const handlePlaySound = useCallback(() => {
     const w = getCurrentWord(session!);
     if (!w) return;
-    
+
     if (currentTask === 'word') {
-      playWithHighlightHelper(w.word, true, setHighlightProgress);
+      playWithHighlightHelper(w.word, true, setHighlightProgress, undefined, globalSpeak);
     } else {
-      const s = phase === 'result_next' && completedSentence 
-        ? completedSentence 
+      const s = phase === 'result_next' && completedSentence
+        ? completedSentence
         : getCurrentSentence(session!);
       if (s) {
-        playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress);
+        playWithHighlightHelper(s, false, setHighlightProgress, setCurrentWordCharProgress, globalSpeak);
       }
     }
-  }, [session, currentTask, phase, completedSentence]);
+  }, [session, currentTask, phase, completedSentence, globalSpeak]);
 
   // ===== 录制 & 评测 =====
 

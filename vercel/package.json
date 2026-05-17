@@ -1,0 +1,17 @@
+{
+  "name": "my-english-app-tts",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@andresaya/edge-tts": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "typescript": "^5.4.0",
+    "vercel": "^34.1.0"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  }
+}

@@ -11,6 +11,7 @@
  */
 import AchievementUnlockModal from '@/components/AchievementUnlockModal';
 import { DetectionOverlay, DetectionPoint } from '@/components/detection-overlay';
+import { useGlobalSpeech } from '@/hooks/useGlobalSpeech';
 import { checkCameraAchievements } from '@/services/achievementService';
 import { analyzeCroppedPatch, analyzeImage, fetchPhrasesForObject, fetchWordDetails, searchWordDefinition } from '@/services/aiService';
 import { detector } from '@/services/realtimeDetection';
@@ -25,20 +26,20 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Dimensions,
-  FlatList,
-  Image,
-  Linking,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Dimensions,
+    FlatList,
+    Image,
+    Linking,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { PinchGestureHandler, State } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -212,6 +213,9 @@ export default function CameraScreen() {
   const [showAchievementModal, setShowAchievementModal] = useState(false);
   const [unlockedBadgeId, setUnlockedBadgeId] = useState('');
 
+  // ====== 全局 TTS 发音管理器 ======
+  const { speak, stop: stopSpeech } = useGlobalSpeech();
+
   // ====== 模型加载 ======
   useEffect(() => {
     let mounted = true;
@@ -238,8 +242,7 @@ export default function CameraScreen() {
   // 防止用户开着 DetailCard 播放声音时离开页面，声音仍在后台播放
   useEffect(() => {
     return () => {
-      const { stopAll } = require('@/services/soundManager');
-      stopAll();
+      stopSpeech();
     };
   }, []);
 
@@ -601,10 +604,8 @@ export default function CameraScreen() {
 
   // ====== 自动 TTS ======
   const handleSpeakWord = useCallback((text: string) => {
-    const { playText } = require('@/services/soundManager');
-    // 传入 word 参数以追踪该单词的发音点击次数（用于"念念不忘"勋章）
-    playText(text, undefined, undefined, text);
-  }, []);
+    speak(text);
+  }, [speak]);
 
   useEffect(() => {
     if (selectedId && selectedPhrases && selectedPhrases.length > 0 && !isLoadingPhrase) {
@@ -852,8 +853,7 @@ export default function CameraScreen() {
               onClose={() => {
                 setSelectedId(null);
                 setSelectedPhrases(null);
-                const { stopAll } = require('@/services/soundManager');
-                stopAll();
+                stopSpeech();
               }}
             />
           )}
@@ -921,8 +921,7 @@ export default function CameraScreen() {
               onClose={() => {
                 setSelectedIndex(null);
                 setSelectedPhrases(null);
-                const { stopAll } = require('@/services/soundManager');
-                stopAll();
+                stopSpeech();
               }}
             />
           )}

@@ -32,10 +32,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AchievementUnlockModal from '../../components/AchievementUnlockModal';
+import { useGlobalSpeech } from '../../hooks/useGlobalSpeech';
 import { checkOralAchievements } from '../../services/achievementService';
 import { ConversationMessage, getAiReply, transcribeAudio } from '../../services/aiConversationService';
 import { saveOralSession } from '../../services/oralHistoryService';
-import { playText, stopAll } from '../../services/soundManager';
 import { logStudyDate } from '../../services/studyStatsService';
 type CallStatus = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -131,6 +131,9 @@ export default function AIConversationScreen() {
 
   // ── STT/LLM 处理中标志 ──
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // ====== 全局 TTS 发音管理器 ======
+  const { speak: globalSpeak, stop: stopGlobalSpeech } = useGlobalSpeech();
 
   // ====== 清理 ======
   useEffect(() => {
@@ -464,8 +467,8 @@ export default function AIConversationScreen() {
     // 9. 防回音状态锁：TTS 播放期间完全阻断麦克风和 VAD
     // vadLockedRef.current 已经为 true，保持锁定
 
-    // 10. 使用系统原生 TTS 播放 AI 回复，onDone 回调自动重启录音
-    playText(aiReply, () => {
+    // 10. 使用全局 TTS 播放 AI 回复，onDone 回调自动重启录音
+    globalSpeak(aiReply, () => {
       // onDone 回调：TTS 播放完毕
       if (!isMountedRef.current) return;
 
@@ -523,8 +526,8 @@ export default function AIConversationScreen() {
     // 防回音状态锁：开场白 TTS 播放期间阻断麦克风
     vadLockedRef.current = true;
 
-    // 使用系统原生 TTS 播放开场白，onDone 回调自动切换到 listening
-    playText(opening, () => {
+    // 使用全局 TTS 播放开场白，onDone 回调自动切换到 listening
+    globalSpeak(opening, () => {
       if (!isMountedRef.current) return;
 
       console.log('[AIConversation] ✅ 开场白播放完毕，切换到聆听模式');
@@ -543,7 +546,7 @@ export default function AIConversationScreen() {
   const endCall = useCallback(async () => {
     clearInactivityTimer();
     cleanupRecording();
-    stopAll();
+    stopGlobalSpeech();
 
     // 停止通话时长计数器
     if (callDurationTimerRef.current) {

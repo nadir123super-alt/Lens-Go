@@ -21,7 +21,7 @@
  *   - 英文释义清洗 \n 换行符，设置 1.5 倍行高
  *   - 提取 [计] [医] [法] 等领域标签
  */
-import { playText, cleanup as soundCleanup } from '@/services/soundManager';
+import { useGlobalSpeech } from '@/hooks/useGlobalSpeech';
 import { isWordFavorited, toggleFavorite } from '@/services/vocabularyService';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
@@ -256,7 +256,8 @@ export default function WordDetailScreen() {
   const phonetic = params.phonetic || '';
   const definition = params.definition || '';
   const translation = params.translation || '';
-  const from = params.from || 'search'; // 默认视为词典查询
+  const from = params.from || 'search';
+  const { speak: globalSpeak, stop: stopGlobalSpeech } = useGlobalSpeech();
 
   // 是否为生词本来源
   const isFromVocabulary = from === 'vocabulary';
@@ -279,7 +280,7 @@ export default function WordDetailScreen() {
   // "退出即停"：页面卸载时自动停止所有音频
   useEffect(() => {
     return () => {
-      soundCleanup();
+      stopGlobalSpeech();
     };
   }, []);
 
@@ -312,8 +313,7 @@ export default function WordDetailScreen() {
 
   // "即点即停"
   const handleSpeak = useCallback((text: string) => {
-    // 传入 word 参数以追踪该单词的发音点击次数（用于"念念不忘"勋章）
-    playText(text, undefined, undefined, text);
+    globalSpeak(text);
   }, []);
 
   // 收藏切换

@@ -9,7 +9,9 @@
     }
   },
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "supabase",
+    "vercel"
   ],
   "include": [
     "**/*.ts",

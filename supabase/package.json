@@ -1,0 +1,16 @@
+{
+  "name": "supabase-tts-functions",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@andresaya/edge-tts": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "supabase": "^1.178.0",
+    "typescript": "^5.4.0"
+  },
+  "scripts": {
+    "deploy": "supabase functions deploy tts"
+  }
+}
