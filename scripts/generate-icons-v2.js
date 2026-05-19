@@ -40,7 +40,7 @@ const iconSvg = `<?xml version="1.0" encoding="UTF-8"?>
   <rect width="1024" height="1024" rx="225" ry="225" fill="#FFFFFF"/>
   <!-- Logo group: centered horizontally, positioned in upper portion -->
   <!-- Original viewBox 800x800, we scale to fit nicely -->
-  <g transform="translate(512, 240) scale(0.9)">
+  <g transform="translate(512, 369) scale(0.95)">
     <!-- Center the 800x800 viewBox -->
     <g transform="translate(-400, -400)">
       <path fill="#FFB5C2" d="${paths[0]}"/>
@@ -48,7 +48,7 @@ const iconSvg = `<?xml version="1.0" encoding="UTF-8"?>
     </g>
   </g>
   <!-- "Lens Go" text below the logo -->
-  <text x="512" y="820" font-family="Arial, Helvetica, sans-serif" font-size="120" font-weight="bold" fill="#FF6B6B" text-anchor="middle">Lens Go</text>
+  <text x="512" y="770" font-family="Arial, Helvetica, sans-serif" font-size="110" font-weight="bold" fill="#FF6B6B" text-anchor="middle">Lens Go</text>
 </svg>`;
 
 async function main() {

@@ -20,14 +20,14 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Easing,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Animated,
+  Easing,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AchievementUnlockModal from '../../components/AchievementUnlockModal';
@@ -150,6 +150,9 @@ export default function AIConversationScreen() {
   const callDurationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const endCallRef = useRef<(() => void) | null>(null);
 
+  // ── 通话结束标记：防止 onSilenceTimeout 异步流程在 endCall 后继续执行 ──
+  const callEndedRef = useRef(false);
+
   // ====== 全局 TTS 发音管理器 ======
   const { speak: globalSpeak, stop: stopGlobalSpeech } = useGlobalSpeech();
 
@@ -263,10 +266,11 @@ export default function AIConversationScreen() {
     clearInactivityTimer();
     if (!isActive) return;
     inactivityTimerRef.current = setTimeout(() => {
-      if (isMountedRef.current) {
-        console.log('[AIConversation] 1分钟无活动，自动挂断');
-        endCallRef.current?.();
-      }
+      if (!isMountedRef.current) return;
+      // 【防竞态】如果通话已结束，不再触发自动挂断
+      if (callEndedRef.current) return;
+      console.log('[AIConversation] 1分钟无活动，自动挂断');
+      endCallRef.current?.();
     }, INACTIVITY_TIMEOUT_MS);
   }, [isActive]);
 
@@ -493,6 +497,13 @@ export default function AIConversationScreen() {
     console.log('[AIConversation] 🎤 开始语音转写（腾讯云 ASR）...');
     const userText = await transcribeAudio(uri);
 
+    // 【防竞态】如果在 STT 过程中用户结束了通话，直接退出
+    if (callEndedRef.current) {
+      console.log('[AIConversation] ⛔ 通话已结束，跳过本轮回复');
+      vadLockedRef.current = false;
+      return;
+    }
+
     if (!userText) {
       console.warn('[AIConversation] ⚠️ 语音转写结果为空，跳过本轮');
       // 空音频：直接重启录音
@@ -511,6 +522,13 @@ export default function AIConversationScreen() {
     // 6. LLM：获取 AI 回复（智谱 GLM-4-Flash）
     console.log('[AIConversation] 🤖 调用智谱 GLM-4-Flash 生成回复...');
     const aiReply = await getAiReply(userText, conversationHistoryRef.current);
+
+    // 【防竞态】如果在 LLM 调用过程中用户结束了通话，直接退出
+    if (callEndedRef.current) {
+      console.log('[AIConversation] ⛔ 通话已结束，跳过 AI 回复播放');
+      vadLockedRef.current = false;
+      return;
+    }
 
     console.log('[AIConversation] ✅ AI 回复:', aiReply);
 
@@ -533,6 +551,11 @@ export default function AIConversationScreen() {
     globalSpeak(aiReply, () => {
       // onDone 回调：TTS 播放完毕
       if (!isMountedRef.current) return;
+      // 【防竞态】如果通话已结束，不再重启录音
+      if (callEndedRef.current) {
+        console.log('[AIConversation] ⛔ 通话已结束，TTS onDone 不重启录音');
+        return;
+      }
 
       console.log('[AIConversation] ✅ TTS 播放完毕，重启录音');
 
@@ -556,6 +579,9 @@ export default function AIConversationScreen() {
 
   // ====== 开始通话 ======
   const startCall = useCallback(() => {
+    // 重置通话结束标记，允许新的通话流程
+    callEndedRef.current = false;
+
     // AI 通话模块使用稍慢的语速（0.9），不影响其他模块
     setAiConversationRate(0.9);
 
@@ -593,6 +619,11 @@ export default function AIConversationScreen() {
     // 使用全局 TTS 播放开场白，onDone 回调自动切换到 listening
     globalSpeak(opening, () => {
       if (!isMountedRef.current) return;
+      // 【防竞态】如果通话已结束（用户在开场白播放期间点击了结束），不再启动录音
+      if (callEndedRef.current) {
+        console.log('[AIConversation] ⛔ 通话已结束，开场白 onDone 不启动录音');
+        return;
+      }
 
       console.log('[AIConversation] ✅ 开场白播放完毕，切换到聆听模式');
 
@@ -608,6 +639,9 @@ export default function AIConversationScreen() {
 
   // ====== 结束通话 ======
   const endCall = useCallback(async () => {
+    // 立即标记通话已结束，阻止 onSilenceTimeout 等异步流程继续执行
+    callEndedRef.current = true;
+
     // 恢复全局语速，不影响其他模块
     setAiConversationRate(null);
 

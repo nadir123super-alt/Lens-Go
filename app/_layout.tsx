@@ -14,15 +14,6 @@ import { AuthProvider, useAuth } from '@/services/AuthContext';
 import { initDictionary } from '@/services/dictionaryService';
 import { PracticeProvider } from '@/services/practiceContext';
 
-// ============================================================
-// 运行时环境变量诊断 — 在 App 启动最开始时执行
-// ============================================================
-console.log('--- 环境变量加载状态 ---');
-console.log('URL 是否存在:', !!process.env.EXPO_PUBLIC_SUPABASE_URL);
-console.log('Anon Key 是否存在:', !!process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
-console.log('Supabase URL 值:', process.env.EXPO_PUBLIC_SUPABASE_URL ? process.env.EXPO_PUBLIC_SUPABASE_URL.substring(0, 20) + '...' : '(空)');
-console.log('--- 环境变量诊断结束 ---');
-
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 

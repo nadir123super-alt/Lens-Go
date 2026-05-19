@@ -21,11 +21,6 @@
       },
       "ios": {
         "simulator": true
-      },
-      "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "https://qryxqfbsaoygxnsfwzvvn.supabase.co",
-        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFyeXhxZmJzYW95Z3huc3R3enZ2biIsInR5cGUiOiJhbm9uIiwiYWlkIjoiZmYwMWYyMWMtZjI3Mi00MjVkLWJiYmEtOWQ5ZDkxN2EzMzFjIiwiaWF0IjoxNzE0Nzg4NjQ0LCJleHAiOjIwMzAzNjQ2NDR9.Ml7S4x2pJ1nZ8Y5hJ8J3J8J3J8J3J8J3J8J3J8J3J8J3J8J3J8J",
-        "EXPO_PUBLIC_ZHIPU_API_KEY": "f70c822d62bb4fa488e6cf93401a1ed6.MM9sPamtfzmwXDHv"
       }
     },
     "production": {
