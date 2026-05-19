@@ -20,7 +20,7 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "ios": {
-        "enterpriseProvisioning": "manual"
+        "simulator": true
       },
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://qryxqfbsaoygxnsfwzvvn.supabase.co",

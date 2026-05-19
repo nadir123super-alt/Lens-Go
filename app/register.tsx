@@ -11,18 +11,19 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import AppLogo from '../components/AppLogo';
 import { useAuth } from '../services/AuthContext';
 import { supabase } from '../services/supabaseClient';
 
@@ -247,9 +248,7 @@ export default function RegisterScreen() {
 
       {/* Logo 和标题区域 */}
       <View style={s.header}>
-        <View style={s.logo}>
-          <Feather name="book-open" size={60} color="#FF6B6B" />
-        </View>
+        <AppLogo size={80} />
         <Text style={s.appName}>Lens Go</Text>
       </View>
 

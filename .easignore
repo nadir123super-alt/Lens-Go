@@ -1,0 +1,21 @@
+# 依赖目录（由云端重新安装，绝对不要上传）
+node_modules/
+
+# Expo 与 Metro 缓存
+.expo/
+.web/
+dist/
+build/
+web-build/
+
+# 编译与平台原生临时缓存
+android/build/
+ios/build/
+
+# 日志与调试文件
+yarn-error.log
+npm-debug.log*
+.eslintcache
+
+# 隐藏的版本控制文件（保留 .git 规则，但让 EAS 忽略其庞大的历史记录体积）
+.git/

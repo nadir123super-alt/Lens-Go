@@ -3,11 +3,12 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
+import AppLogo from '@/components/AppLogo';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/services/AuthContext';
 import { initDictionary } from '@/services/dictionaryService';
@@ -52,6 +53,25 @@ const loadingStyles = StyleSheet.create({
     fontSize: 16,
     color: '#FFFFFF',
     marginTop: 16,
+  },
+});
+
+/**
+ * 自定义 Splash 封面样式 — 在字体加载期间显示 Logo + LensGo 文字
+ */
+const splashStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFB5C2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 20,
+    letterSpacing: 4,
   },
 });
 
@@ -104,8 +124,26 @@ export default function RootLayout() {
     Ionicons: require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf'),
   });
 
+  // ★ 强制展示自定义 Splash 封面，不管字体是否已加载
+  // 即使字体已缓存（loaded 瞬间为 true），也至少展示 SPLASH_MIN_DISPLAY_MS 毫秒
+  const SPLASH_MIN_DISPLAY_MS = 2000;
+  const [showSplash, setShowSplash] = useState(true);
+
+  // ★ 所有 useEffect 必须在任何条件 return 之前声明，以遵守 React Hooks 规则
   useEffect(() => {
+    // 字体加载完成后，等待 SPLASH_MIN_DISPLAY_MS 再隐藏封面
     if (loaded || error) {
+      const timer = setTimeout(() => {
+        setShowSplash(false);
+        SplashScreen.hideAsync();
+      }, SPLASH_MIN_DISPLAY_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [loaded, error]);
+
+  useEffect(() => {
+    // 仅在封面隐藏后（showSplash === false）才执行初始化任务
+    if (!showSplash && (loaded || error)) {
       // 全局音频会话初始化：扬声器播放 + 录音 + 语音优化
       (async () => {
         try {
@@ -150,15 +188,17 @@ export default function RootLayout() {
       })();
 
       // 发音点击计数由 audioCounter 模块在内存中维护，无需从数据库加载
-
-      // Hide the splash screen after the fonts have loaded (or an error was returned)
-      SplashScreen.hideAsync();
     }
-  }, [loaded, error]);
+  }, [showSplash, loaded, error]);
 
-  // Prevent rendering until the font has loaded or an error was returned
-  if (!loaded && !error) {
-    return null;
+  // ★ 在字体加载完成前，或强制展示时间内，显示自定义 Splash 封面
+  if (showSplash) {
+    return (
+      <View style={splashStyles.container}>
+        <AppLogo size={160} />
+        <Text style={splashStyles.title}>Lens Go</Text>
+      </View>
+    );
   }
 
   return (
