@@ -88,7 +88,7 @@ interface WordDetailData {
 
 const ANCHOR_COLOR = '#FF6B6B';
 const YELLOW_LEARN = '#FFD93D';
-const API_KEY = 'f70c822d62bb4fa488e6cf93401a1ed6.MM9sPamtfzmwXDHv';
+const API_KEY = process.env.EXPO_PUBLIC_ZHIPU_API_KEY || '';
 const DETECTION_INTERVAL = 200;
 const CROP_SIZE = 300;
 const { width: SCREEN_W } = Dimensions.get('window');

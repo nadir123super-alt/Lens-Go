@@ -18,8 +18,8 @@
 import { fetchPhrasesForObject } from './aiService';
 import { supabase } from './supabaseClient';
 
-// AI API Key（与 camera.tsx 保持一致）
-const API_KEY = 'f70c822d62bb4fa488e6cf93401a1ed6.MM9sPamtfzmwXDHv';
+// AI API Key（从环境变量读取）
+const API_KEY = process.env.EXPO_PUBLIC_ZHIPU_API_KEY || '';
 
 // ─── 共享词库操作函数 ─────────────────────────────────────────
 

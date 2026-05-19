@@ -25,8 +25,8 @@ import { transcribeWithTencent } from './tencentAsrService';
 
 // ====== 智谱 GLM-4-Flash 配置（免费模型） ======
 const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-// 优先从 process.env 读取（Expo 编译注入），兜底使用硬编码值（确保运行时可用）
-const ZHIPU_API_KEY = process.env.EXPO_PUBLIC_ZHIPU_API_KEY || 'f70c822d62bb4fa488e6cf93401a1ed6.MM9sPamtfzmwXDHv';
+// 从环境变量读取（需要在 .env 中配置 EXPO_PUBLIC_ZHIPU_API_KEY）
+const ZHIPU_API_KEY = process.env.EXPO_PUBLIC_ZHIPU_API_KEY || '';
 const ZHIPU_MODEL_NAME = 'GLM-4-Flash';
 const LLM_TIMEOUT_MS = 30000;
 
