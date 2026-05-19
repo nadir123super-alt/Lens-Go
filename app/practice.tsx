@@ -135,7 +135,15 @@ function playWithHighlightHelper(
     }
   } else {
     // 例句模式：使用 TTS 的字符进度回调，追踪当前单词和字母位置
-    const words = text.split(/\s+/).filter(w => w.length > 0);
+    
+    // 重要：globalSpeak.speak() 内部会通过 splitText() 去掉非字母数字的标点符号，
+    // 所以实际播放的文本可能与原始 text 不一致（例如 "The cat and the dog." 实际播放 "The cat and the dog"）。
+    // 因此，我们需要对 text 做同样的预处理，使 words 和 wordStartPositions 与 TTS 实际播放的文本对齐。
+    // 否则 handleCharProgress 接收到的 charIndex（基于实际播放文本）无法正确映射到 words。
+    const cleanedText = text.trim();
+    // 去掉标点符号（与 useGlobalSpeech.splitText 中的 isEnglish 逻辑一致：只保留字母、数字、撇号）
+    const punctuationStripped = cleanedText.replace(/[^a-zA-Z'0-9\s]/g, '');
+    const words = punctuationStripped.split(/\s+/).filter(w => w.length > 0);
 
     // 预计算每个单词的起始字符位置（用于快速查找）
     const wordStartPositions: number[] = [];
@@ -150,8 +158,18 @@ function playWithHighlightHelper(
       // TTS 引擎实时回调：当前正在播放的字符索引
       // 找到当前字符属于哪个单词
       let currentWordIndex = words.length - 1;
+      
+      // 特殊处理：当 charIndex >= punctuationStripped.length 时（播放完成回调），
+      // 直接设置为最后一个单词的完整高亮，避免最后一个字母和标点符号未变亮的问题
+      if (charIndex >= punctuationStripped.length) {
+        const lastWordLength = words[words.length - 1]?.length || 0;
+        setProgress(words.length - 1);
+        setChar(lastWordLength);
+        return;
+      }
+      
       for (let i = 0; i < words.length; i++) {
-        const nextStart = i < words.length - 1 ? wordStartPositions[i + 1] : text.length;
+        const nextStart = i < words.length - 1 ? wordStartPositions[i + 1] : punctuationStripped.length;
         if (charIndex >= wordStartPositions[i] && charIndex < nextStart) {
           currentWordIndex = i;
           break;
@@ -163,6 +181,10 @@ function playWithHighlightHelper(
       const wordLength = words[currentWordIndex]?.length || 0;
 
       // 更新状态
+      // 注意：setProgress 设置的是单词索引（0-based），渲染层用 wordSeqIndex < highlightProgress 判断是否已完成
+      // 例如：words=["The","cat","and","the","dog"]，读到第二个"the"时 currentWordIndex=3
+      // 渲染层 wordSeqIndex=0（第一个"The"）: 0<3=true ✅ 已完成
+      // 渲染层 wordSeqIndex=3（第二个"the"）: 3<3=false ✅ 当前单词（不会高亮）
       setProgress(currentWordIndex);
       setChar(Math.min(charInWord, wordLength));
     };
@@ -170,7 +192,7 @@ function playWithHighlightHelper(
     if (speakFn) {
       // 使用提供的 speakFn（通常是 globalSpeak）
       speakFn(
-        text,
+        text,  // 仍然传入原始 text，因为 globalSpeak.speak 内部会自己做清理
         () => {
           // 播放完成
           setProgress(words.length);
@@ -490,6 +512,11 @@ export default function PracticeScreen() {
       setTimeout(() => setPhase('ready'), 3000);
       return;
     }
+
+    // ★ 立即停止 TTS 播放，确保不影响用户录音
+    stopGlobalSpeech();
+    stopTTS();
+
     setPhase('recording');
     setGainWarning(false);
     volumeHistoryRef.current = [];
@@ -803,7 +830,7 @@ export default function PracticeScreen() {
   const sentence = phase === 'result_next' && completedSentence 
     ? completedSentence 
     : (session ? getCurrentSentence(session) : null);
-  const feedback = score ? getScoreFeedback(score) : null;
+  const feedback = score !== null ? getScoreFeedback(score) : null;
 
   const progress = session
     ? session.completed ? session.words.length : session.currentIndex
@@ -997,34 +1024,43 @@ export default function PracticeScreen() {
                 
                 return (
                   <View style={sentenceStyle}>
-                    {sentence.split(/(\s+)/).map((part, index) => {
-                      if (part.match(/^\s+$/)) {
-                        return <Text key={index} style={spaceStyle}>{part}</Text>;
-                      }
-                      const words = sentence.split(/\s+/).filter(w => w.length > 0);
-                      const wordIndex = words.indexOf(part);
-                      const isCompletedWord = wordIndex < highlightProgress;
-                      const isCurrentWord = wordIndex === highlightProgress && currentWordCharProgress > 0;
+                    {(() => {
+                      // 顺序计数器：追踪当前是第几个非空白单词（修复重复单词同时高亮的问题）
+                      let wordSeqIndex = -1;
+                      const parts = sentence.split(/(\s+)/);
+                      // 计算非空白单词的总数（用于判断是否全部播放完成）
+                      const totalWords = parts.filter(p => !p.match(/^\s+$/)).length;
+                      return parts.map((part, index) => {
+                        if (part.match(/^\s+$/)) {
+                          return <Text key={index} style={spaceStyle}>{part}</Text>;
+                        }
+                        wordSeqIndex++;
+                        // 当所有单词都已播放完成时，全部显示为高亮
+                        // 修复：确保最后一个单词的最后一个字母和标点符号也能变亮
+                        const isAllCompleted = highlightProgress >= totalWords;
+                        const isCompletedWord = isAllCompleted || wordSeqIndex < highlightProgress;
+                        const isCurrentWord = !isAllCompleted && wordSeqIndex === highlightProgress && currentWordCharProgress > 0;
                       
-                      return (
-                        <Text key={index} style={wordStyle}>
-                          {isCompletedWord ? (
-                            <Text style={highlightedStyle}>{part}</Text>
-                          ) : isCurrentWord ? (
-                            part.split('').map((char, charIndex) => (
-                              <Text 
-                                key={charIndex}
-                                style={charIndex < currentWordCharProgress ? charHighlightedStyle : charDimStyle}
-                              >
-                                {char}
-                              </Text>
-                            ))
-                          ) : (
-                            <Text style={dimStyle}>{part}</Text>
-                          )}
-                        </Text>
-                      );
-                    })}
+                        return (
+                          <Text key={index} style={wordStyle}>
+                            {isCompletedWord ? (
+                              <Text style={highlightedStyle}>{part}</Text>
+                            ) : isCurrentWord ? (
+                              part.split('').map((char, charIndex) => (
+                                <Text
+                                  key={charIndex}
+                                  style={charIndex < currentWordCharProgress ? charHighlightedStyle : charDimStyle}
+                                >
+                                  {char}
+                                </Text>
+                              ))
+                            ) : (
+                              <Text style={dimStyle}>{part}</Text>
+                            )}
+                          </Text>
+                        );
+                      });
+                    })()}
                   </View>
                 );
               })()}

@@ -217,9 +217,33 @@ export function calculateRealWordScore(
   // 使用字符串相似度作为主要评分依据
   const similarity = calculateStringSimilarity(transcribedText, targetText);
   
+  // ★ 乱读检测：如果相似度极低（低于 30%），说明用户读的单词与目标单词完全无关
+  // 例如目标词是 "toothpaste"，用户读 "Apple" 或随便说了别的词，直接给 0 分
+  if (similarity < 30) {
+    console.log(
+      `[practiceService] 🚫 单词乱读检测: similarity=${similarity}%, ` +
+      `transcribed="${transcribedText}", target="${targetText}", 返回 0 分`
+    );
+    return 0;
+  }
+  
   // 将 ISE 原始分数与字符串相似度结合
   // ISE 分数反映发音准确度，字符串相似度反映单词识别正确性
-  const finalScore = Math.round((similarity * 0.7 + rawScore * 0.3));
+  let finalScore = Math.round((similarity * 0.7 + rawScore * 0.3));
+  
+  // ★ 高分段严格化：85-100 分区间，要求更高
+  // 原来的 85 分现在只对应 ~75 分，需要更好的发音才能达到 85+
+  // 使用非线性压缩：分数越高，提升越难
+  if (finalScore >= 85) {
+    // 将 85-100 映射到 75-100，中间区域压缩更明显
+    // 85→75, 90→82, 95→92, 100→100
+    const compressed = 75 + Math.pow((finalScore - 85) / 15, 1.3) * 25;
+    finalScore = Math.round(compressed);
+    console.log(
+      `[practiceService] 📊 高分段压缩: original=${Math.round(similarity * 0.7 + rawScore * 0.3)}, ` +
+      `compressed=${finalScore}`
+    );
+  }
   
   return Math.min(100, Math.max(0, finalScore));
 }
@@ -256,24 +280,34 @@ export function calculateRealSentenceScore(
   
   // 使用逐词数据计算匹配率（如果有）
   let matchRate: number;
+  let matchedCount = 0;
   
   if (words && words.length > 0) {
     // 使用 ISE 返回的逐词数据
     const recognizedWords = words.filter(w => w.score > 0).map(w => w.text.toLowerCase());
-    const matchedCount = recognizedWords.filter(rw => targetWords.includes(rw)).length;
+    matchedCount = recognizedWords.filter(rw => targetWords.includes(rw)).length;
     matchRate = matchedCount / targetWords.length;
   } else {
     // 回退到字符串匹配
     const cleanTranscribed = transcribedText.toLowerCase().replace(/[^\w\s]/g, '');
     const transcribedWords = cleanTranscribed.split(/\s+/).filter(w => w.length > 0);
-    const matchedCount = transcribedWords.filter(tw => targetWords.includes(tw)).length;
+    matchedCount = transcribedWords.filter(tw => targetWords.includes(tw)).length;
     matchRate = matchedCount / targetWords.length;
+  }
+  
+  // ★ 乱读检测：如果整个句子没有一个单词匹配到目标单词，说明用户完全在乱读，直接给 0 分
+  if (matchedCount === 0) {
+    console.log(
+      `[practiceService] 🚫 例句乱读检测: matchedCount=0, ` +
+      `transcribed="${transcribedText.substring(0, 50)}", target="${targetText.substring(0, 50)}", 返回 0 分`
+    );
+    return 0;
   }
   
   // 计算得分：基于匹配率的非线性映射
   // 准确率 60% 对应 60 分，低于 40% 得分在 40 以下
   let finalScore: number;
-  
+
   if (matchRate < 0.4) {
     // 低于 40% 准确率：线性映射，最高 40 分
     finalScore = matchRate * 100;
@@ -281,18 +315,29 @@ export function calculateRealSentenceScore(
     // 40%-60% 准确率：提升曲线，从 40 到 60
     finalScore = 40 + (matchRate - 0.4) * 100;
   } else {
-    // 60%+ 准确率：鼓励型提升，60 到 100
+    // 60%+ 准确率：提升曲线，60 到 100
     finalScore = 60 + (matchRate - 0.6) * 100;
   }
-  
+
   // 结合 ISE 原始分数作为微调
   finalScore = Math.round((finalScore * 0.8 + rawScore * 0.2));
-  
+
+  // ★ 高分段严格化：85-100 分区间，要求更高（与单词评分保持一致）
+  if (finalScore >= 85) {
+    const compressed = 75 + Math.pow((finalScore - 85) / 15, 1.3) * 25;
+    finalScore = Math.round(compressed);
+    console.log(
+      `[practiceService] 📊 例句高分段压缩: original=${Math.round(finalScore)}, ` +
+      `compressed=${finalScore}`
+    );
+  }
+
   console.log(
     `[practiceService] 📊 例句真实评分: matchRate=${(matchRate * 100).toFixed(0)}%, ` +
+    `matchedCount=${matchedCount}/${targetWords.length}, ` +
     `raw=${rawScore}, final=${Math.round(finalScore)}`
   );
-  
+
   return Math.min(100, Math.max(0, finalScore));
 }
 
@@ -553,13 +598,13 @@ export function getScoreFeedback(score: number): {
   if (score >= 90) {
     return { level: '完美 🌟', feedback: '发音非常标准！', color: '#2ECC71' };
   }
-  if (score >= 75) {
+  if (score >= 80) {
     return { level: '优秀 👍', feedback: '发音很好，继续保持！', color: '#27AE60' };
   }
-  if (score >= 60) {
-    return { level: '不错 💪', feedback: '基本正确，注意个别发音', color: '#F39C12' };
+  if (score >= 65) {
+    return { level: '不错 💪', feedback: '基本正确，注意个别发音细节', color: '#F39C12' };
   }
-  if (score >= 40) {
+  if (score >= 45) {
     return { level: '加油 🔄', feedback: '发音还需打磨，需要多练习', color: '#E67E22' };
   }
   return {

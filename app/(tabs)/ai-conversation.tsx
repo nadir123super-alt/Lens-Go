@@ -20,14 +20,14 @@ import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Easing,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Animated,
+    Easing,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AchievementUnlockModal from '../../components/AchievementUnlockModal';
@@ -119,8 +119,13 @@ export default function AIConversationScreen() {
 
   // ── 动画 ──
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const breatheAnim = useRef(new Animated.Value(1)).current;
+  const breathingAnim = useRef(new Animated.Value(1)).current;
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // 思考动效 - 三个点上下跳动
+  const dot1Anim = useRef(new Animated.Value(0)).current;
+  const dot2Anim = useRef(new Animated.Value(0)).current;
+  const dot3Anim = useRef(new Animated.Value(0)).current;
 
   // ── 录音相关 ref ──
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -162,13 +167,13 @@ export default function AIConversationScreen() {
     if (status === 'idle') {
       const loop = Animated.loop(
         Animated.sequence([
-          Animated.timing(breatheAnim, {
+          Animated.timing(breathingAnim, {
             toValue: 0.6,
             duration: 1500,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }),
-          Animated.timing(breatheAnim, {
+          Animated.timing(breathingAnim, {
             toValue: 1,
             duration: 1500,
             easing: Easing.inOut(Easing.ease),
@@ -179,9 +184,9 @@ export default function AIConversationScreen() {
       loop.start();
       return () => loop.stop();
     } else {
-      breatheAnim.setValue(1);
+      breathingAnim.setValue(1);
     }
-  }, [status, breatheAnim]);
+  }, [status, breathingAnim]);
 
   // ====== 脉冲动画（listening / speaking 状态） ======
   useEffect(() => {
@@ -208,6 +213,43 @@ export default function AIConversationScreen() {
       pulseAnim.setValue(1);
     }
   }, [status, pulseAnim]);
+
+  // ====== 思考动效（三个点上下跳动） ======
+  useEffect(() => {
+    if (status === 'thinking') {
+      // 三个点依次上下跳动
+      const animateDots = () => {
+        Animated.sequence([
+          Animated.timing(dot1Anim, { toValue: -12, duration: 200, useNativeDriver: true }),
+          Animated.timing(dot1Anim, { toValue: 0, duration: 200, useNativeDriver: true }),
+        ]).start();
+
+        setTimeout(() => {
+          Animated.sequence([
+            Animated.timing(dot2Anim, { toValue: -12, duration: 200, useNativeDriver: true }),
+            Animated.timing(dot2Anim, { toValue: 0, duration: 200, useNativeDriver: true }),
+          ]).start();
+        }, 100);
+
+        setTimeout(() => {
+          Animated.sequence([
+            Animated.timing(dot3Anim, { toValue: -12, duration: 200, useNativeDriver: true }),
+            Animated.timing(dot3Anim, { toValue: 0, duration: 200, useNativeDriver: true }),
+          ]).start();
+        }, 200);
+      };
+
+      animateDots();
+      const interval = setInterval(animateDots, 600);
+
+      return () => clearInterval(interval);
+    } else {
+      // 重置位置
+      dot1Anim.setValue(0);
+      dot2Anim.setValue(0);
+      dot3Anim.setValue(0);
+    }
+  }, [status, dot1Anim, dot2Anim, dot3Anim]);
 
   // ====== 计时器管理 ======
   const clearInactivityTimer = useCallback(() => {
@@ -579,36 +621,42 @@ export default function AIConversationScreen() {
       callDurationTimerRef.current = null;
     }
 
-    // 计算通话时长并保存记录
-    const duration = callStartTimeRef.current > 0 ? Math.floor((Date.now() - callStartTimeRef.current) / 1000) : 0;
-    const userMessages = conversationHistoryRef.current
-      .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-    if (userMessages.length > 0) {
-      console.log('[AIConversation] 保存对话记录，共', userMessages.length, '条消息');
-      await saveOralSession(userMessages, duration);
+    // 用 try/catch 包裹可能抛异常的异步操作，确保 UI 状态一定能重置
+    try {
+      // 计算通话时长并保存记录
+      const duration = callStartTimeRef.current > 0 ? Math.floor((Date.now() - callStartTimeRef.current) / 1000) : 0;
+      const userMessages = conversationHistoryRef.current
+        .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      if (userMessages.length > 0) {
+        console.log('[AIConversation] 保存对话记录，共', userMessages.length, '条消息');
+        await saveOralSession(userMessages, duration);
 
-      // 通话记录保存成功后，触发 AI 通话成就检测
-      const newlyUnlocked = await checkOralAchievements();
-      if (newlyUnlocked.length > 0 && isMountedRef.current) {
-        setNewlyUnlockedBadgeId(newlyUnlocked[0]);
-        setAchievementModalVisible(true);
+        // 通话记录保存成功后，触发 AI 通话成就检测
+        const newlyUnlocked = await checkOralAchievements();
+        if (newlyUnlocked.length > 0 && isMountedRef.current) {
+          setNewlyUnlockedBadgeId(newlyUnlocked[0]);
+          setAchievementModalVisible(true);
+        }
       }
+
+      // 检查是否满足 3 分钟打卡条件
+      const totalDuration = totalCallDurationRef.current;
+      if (totalDuration >= 180) {
+        console.log('[AIConversation] 通话时长', totalDuration, '秒，满足3分钟打卡条件');
+        await logStudyDate('practice');
+        if (isMountedRef.current) {
+          setToastMessage('🎉 恭喜！今日 AI 通话满 3 分钟，已成功点亮今日学习天数！');
+          setTimeout(() => {
+            if (isMountedRef.current) setToastMessage(null);
+          }, 4000);
+        }
+      }
+    } catch (err) {
+      console.error('[AIConversation] endCall 异步操作异常:', err);
     }
 
-    // 检查是否满足 3 分钟打卡条件
-    const totalDuration = totalCallDurationRef.current;
-    if (totalDuration >= 180) {
-      console.log('[AIConversation] 通话时长', totalDuration, '秒，满足3分钟打卡条件');
-      await logStudyDate('practice');
-      if (isMountedRef.current) {
-        setToastMessage('🎉 恭喜！今日 AI 通话满 3 分钟，已成功点亮今日学习天数！');
-        setTimeout(() => {
-          if (isMountedRef.current) setToastMessage(null);
-        }, 4000);
-      }
-    }
-
+    // 无论异步操作是否成功，都重置 UI 状态
     setIsActive(false);
     setStatusAndRef('idle');
     setAiText('');
@@ -617,7 +665,7 @@ export default function AIConversationScreen() {
     conversationHistoryRef.current = [];
     callStartTimeRef.current = 0;
     totalCallDurationRef.current = 0;
-  }, [cleanupRecording]);
+  }, [cleanupRecording, stopGlobalSpeech]);
 
   // 同步 endCall 到 ref（供 resetInactivityTimer 使用）
   endCallRef.current = endCall;
@@ -630,7 +678,7 @@ export default function AIConversationScreen() {
       case 'listening':
         return 'AI 正在听你说话...';
       case 'thinking':
-        return 'AI 正在思考...';
+        return ''; // 思考状态不显示文字，用动效展示
       case 'speaking':
         return 'AI 正在说话...';
       default:
@@ -696,36 +744,44 @@ export default function AIConversationScreen() {
             </View>
           </View>
         ) : (
-          /* 圆圈动画（非 listening 状态） */
-          <Animated.View
-            style={[
-              styles.waveCircle,
-              {
-                transform: [
-                  {
-                    scale:
-                      status === 'idle'
-                        ? breatheAnim
-                        : status === 'speaking'
-                        ? pulseAnim
-                        : new Animated.Value(1),
-                  },
-                ],
-              },
-              status === 'speaking' && styles.waveCircleSpeaking,
-              status === 'thinking' && styles.waveCircleThinking,
-            ]}
-          >
-            <Feather
-              name={status === 'speaking' ? 'volume-2' : 'mic'}
-              size={40}
-              color="#fff"
-            />
-          </Animated.View>
+          /* 圆圈动画（仅 idle 状态显示，speaking/thinking 用 PixelFace） */
+          status === 'idle' ? (
+            <Animated.View
+              style={[
+                styles.waveCircle,
+                {
+                  transform: [
+                    {
+                      scale: breathingAnim,
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Feather name="mic" size={40} color="#fff" />
+            </Animated.View>
+          ) : null
         )}
 
         {/* 状态文本 */}
         <Text style={styles.statusText}>{getStatusText()}</Text>
+
+        {/* 思考动效（thinking 状态显示） */}
+        {status === 'thinking' && (
+          <View style={styles.thinkingContainer}>
+            <View style={styles.thinkingDots}>
+              <Animated.View
+                style={[styles.dot, { transform: [{ translateY: dot1Anim }] }]}
+              />
+              <Animated.View
+                style={[styles.dot, { transform: [{ translateY: dot2Anim }] }]}
+              />
+              <Animated.View
+                style={[styles.dot, { transform: [{ translateY: dot3Anim }] }]}
+              />
+            </View>
+          </View>
+        )}
 
         {/* AI 当前文本（speaking 时显示） */}
         {status === 'speaking' && aiText ? (
@@ -1004,6 +1060,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+  },
+
+  // ── 思考动效 ──
+  thinkingContainer: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  thinkingDots: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    height: 32,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FBBF24',
   },
 
   // ── Toast ──

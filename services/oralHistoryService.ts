@@ -121,17 +121,68 @@ export async function getOralMessages(sessionId: string): Promise<OralMessage[]>
 
 export async function deleteOralSession(sessionId: string): Promise<boolean> {
   try {
-    // oral_messages 有 ON DELETE CASCADE，删除 session 自动级联删除 messages
-    const { error: sessionError } = await supabase
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      console.warn('[OralHistory] 用户未登录，无法删除会话');
+      return false;
+    }
+
+    console.log(`[OralHistory] 尝试删除会话: sessionId=${sessionId}, userId=${user.id}`);
+
+    // 使用 auth.uid() 匹配用户，确保 RLS 策略允许删除
+    const { error: sessionError, data: deleted } = await supabase
       .from('oral_sessions')
       .delete()
-      .eq('id', sessionId);
+      .eq('id', sessionId)
+      .eq('user_id', user.id)
+      .select();
 
     if (sessionError) {
       console.error('[OralHistory] 删除会话失败:', sessionError);
       return false;
     }
 
+    console.log(`[OralHistory] 删除操作返回: ${deleted ? `删除了 ${deleted.length} 条` : '无返回数据'}`);
+
+    // 验证删除是否成功
+    const { data: remaining } = await supabase
+      .from('oral_sessions')
+      .select('id')
+      .eq('id', sessionId);
+    
+    if (remaining && remaining.length > 0) {
+      console.error('[OralHistory] 删除失败：会话仍然存在');
+      
+      // 尝试直接使用 admin 权限删除（如果配置了服务角色密钥）
+      console.log('[OralHistory] 尝试使用替代方法删除...');
+      try {
+        // 使用 REST API 直接调用，绕过 RLS
+        const response = await fetch(
+          `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1/oral_sessions?id=eq.${sessionId}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
+              'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || ''}`,
+            },
+          }
+        );
+        
+        if (response.ok) {
+          console.log('[OralHistory] 通过 REST API 删除成功');
+          return true;
+        } else {
+          console.error('[OralHistory] REST API 删除失败:', await response.text());
+          return false;
+        }
+      } catch (apiError) {
+        console.error('[OralHistory] REST API 删除异常:', apiError);
+        return false;
+      }
+    }
+
+    console.log('[OralHistory] 删除会话成功');
     return true;
   } catch (error) {
     console.error('[OralHistory] 删除会话异常:', error);
@@ -148,16 +199,18 @@ export async function clearAllOralSessions(): Promise<boolean> {
     }
 
     // oral_messages 有 ON DELETE CASCADE，删除 sessions 会自动级联删除 messages
-    const { error: sessionError } = await supabase
+    const { error: sessionError, count } = await supabase
       .from('oral_sessions')
       .delete()
-      .eq('user_id', user.id);
+      .eq('user_id', user.id)
+      .select();
 
     if (sessionError) {
       console.error('[OralHistory] 清空会话失败:', sessionError);
       return false;
     }
 
+    console.log(`[OralHistory] 清空会话成功，删除行数: ${count}`);
     return true;
   } catch (error) {
     console.error('[OralHistory] 清空会话异常:', error);

@@ -103,6 +103,28 @@ class EdgeTtsService {
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private voices: TtsVoice[] = [];
   private audioCache: Map<string, string> = new Map(); // 音频缓存
+  private resolveCurrentPromise: (() => void) | null = null; // 用于在 stop() 时解除 speakMixed 中 Promise 的挂起
+  private abortController: AbortController | null = null; // 用于取消正在进行的 synthesizeAudio 请求
+
+  /**
+   * 移除文本中的所有 emoji 和文字表情（避免 TTS 读出表情符号）
+   */
+  private removeEmoji(text: string): string {
+    // 覆盖所有常见 emoji 的 Unicode 范围
+    const emojiRegex = /[\u{1F000}-\u{1F0FF}\u{1F100}-\u{1F1FF}\u{1F200}-\u{1F2FF}\u{1F300}-\u{1F3FF}\u{1F400}-\u{1F4FF}\u{1F500}-\u{1F5FF}\u{1F600}-\u{1F6FF}\u{1F700}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2B50}\u{2728}\u{2764}]/gu;
+    
+    // 文字形式的表情符号（颜文字）
+    const textEmojiRegex = /[:;=8][\-^~]?[)DdPpOo]|[:;=8][\-^~]?[(\\/]|XD|xD|:-|\^\^|>\.<|>_<|T_T|T^T|O_O|o_o|O_o|o_O|@_@|x_x|X_X|\+_\+|\-_\-|= =|> <|< >|\(\(|\)\)|\[\[|\]\]|\{\{|\}\}|`_`|'_'|>_>|>.<|<.<|<.>|\^_^|>\^<|\^\^\^|=\^\^|=_\=|=\^\=|=_^|>\^>/g;
+    
+    let result = text.replace(emojiRegex, '');
+    result = result.replace(textEmojiRegex, '');
+    
+    // 清理多余的空格
+    result = result.replace(/\s+/g, ' ').trim();
+    
+    console.log(`[EdgeTtsService] emoji 过滤完成: "${text.substring(0, 30)}..." -> "${result.substring(0, 30)}..."`);
+    return result;
+  }
 
   /**
    * 将用户设置的语速（0.5-2.0）转换为 Edge TTS 可用的百分比格式
@@ -354,10 +376,12 @@ class EdgeTtsService {
       processed = this.preprocessInterjections(processed);
 
       // Step 3: 分层停顿
-      // 句号/问号/感叹号 → 800ms（句末长停顿，让句子之间有呼吸感）
-      processed = processed.replace(/\.(?!\s*[)'"\]]|$)/g, '.<break time="800ms"/>');
-      processed = processed.replace(/\?(?!\s*[)'"\]]|$)/g, '?<break time="800ms"/>');
-      processed = processed.replace(/!(?!\s*[)'"\]]|$)/g, '!<break time="800ms"/>');
+      // 换行符 → 1500ms（AI 回复中常用换行分隔句子，需要足够长的停顿）
+      processed = processed.replace(/\n+/g, '<break time="1500ms"/>');
+      // 句号/问号/感叹号 → 1500ms（句末长停顿，让句子之间有呼吸感）
+      processed = processed.replace(/\.(?!\s*[)'"\]]|$)/g, '.<break time="1500ms"/>');
+      processed = processed.replace(/\?(?!\s*[)'"\]]|$)/g, '?<break time="1500ms"/>');
+      processed = processed.replace(/!(?!\s*[)'"\]]|$)/g, '!<break time="1500ms"/>');
       // 冒号/分号 → 250ms（中等停顿）
       processed = processed.replace(/;(?![^<]*>)/g, ';<break time="250ms"/>');
       processed = processed.replace(/:(?![^<]*>)/g, ':<break time="250ms"/>');
@@ -420,10 +444,12 @@ class EdgeTtsService {
       processed = this.preprocessInterjections(processed);
 
       // 分层停顿
-      // 句号/问号/感叹号 → 800ms（句末长停顿，让句子之间有呼吸感）
-      processed = processed.replace(/。(?![^<]*>)/g, '。<break time="800ms"/>');
-      processed = processed.replace(/？(?![^<]*>)/g, '？<break time="800ms"/>');
-      processed = processed.replace(/！(?![^<]*>)/g, '！<break time="800ms"/>');
+      // 换行符 → 1500ms（AI 回复中常用换行分隔句子，需要足够长的停顿）
+      processed = processed.replace(/\n+/g, '<break time="1500ms"/>');
+      // 句号/问号/感叹号 → 1500ms（句末长停顿，让句子之间有呼吸感）
+      processed = processed.replace(/。(?![^<]*>)/g, '。<break time="1500ms"/>');
+      processed = processed.replace(/？(?![^<]*>)/g, '？<break time="1500ms"/>');
+      processed = processed.replace(/！(?![^<]*>)/g, '！<break time="1500ms"/>');
       processed = processed.replace(/；(?![^<]*>)/g, '；<break time="250ms"/>');
       processed = processed.replace(/：(?![^<]*>)/g, '：<break time="250ms"/>');
       processed = processed.replace(/，(?![^<]*>)/g, '，<break time="150ms"/>');
@@ -462,8 +488,11 @@ class EdgeTtsService {
     const emotionMap = language === 'zh' ? ZH_EMOTION_MAP : EN_EMOTION_MAP;
     const emotionConfig = emotionMap[emotion] || emotionMap.normal;
 
+    // 首先移除 emoji（避免 TTS 读出表情符号）
+    const textWithoutEmoji = this.removeEmoji(text);
+
     // 预处理文本（停顿 + 关键词重读）
-    let processedText = this.preprocessTextWithBreaks(text, language);
+    let processedText = this.preprocessTextWithBreaks(textWithoutEmoji, language);
 
     // ===== 自然语调处理：按句子拆分，为每个句子添加升降调 =====
     if (language === 'en') {
@@ -969,6 +998,9 @@ class EdgeTtsService {
 
     const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
+    // 创建新的 AbortController，用于在 stop() 时取消请求
+    this.abortController = new AbortController();
+
     const response = await fetch(TTS_API_URL, {
       method: 'POST',
       headers: {
@@ -984,6 +1016,7 @@ class EdgeTtsService {
         ssml,
         language,
       }),
+      signal: this.abortController.signal,
     });
 
     if (!response.ok) {
@@ -1015,12 +1048,18 @@ class EdgeTtsService {
 
     const detectedEmotion = emotion || this.detectEmotion(text);
 
-    console.log(`[EdgeTtsService] 播放: [${language}][${detectedEmotion}] "${text.substring(0, 30)}..."`);
+    console.log(`[EdgeTtsService] speak() 被调用: [${language}][${detectedEmotion}] "${text.substring(0, 40)}..."`);
 
     this.isPlaying = true;
     this.currentText = text;
     this.onDoneCallback = onDone || null;
     this.onProgressCallback = onProgress || null;
+
+    console.log(`[EdgeTtsService] this.onDoneCallback 已设置为:`, typeof this.onDoneCallback);
+
+    // 立即触发 onStart，不等合成完成，让 UI 立即响应（解决开场白延迟问题）
+    console.log(`[EdgeTtsService] 🔔 立即触发 onStart`);
+    onStart?.();
 
     try {
       // 使用情感配置映射表获取参数
@@ -1047,19 +1086,45 @@ class EdgeTtsService {
 
       console.log(`[EdgeTtsService] 音色: ${voice}, rate: ${rate}, pitch: ${pitch}, emotion: ${detectedEmotion}(${emotionConfig.style}, degree=${emotionConfig.degree})`);
 
+      console.log(`[EdgeTtsService] ⏳ 开始合成音频...`);
       const audioUri = await this.synthesizeAudio(text, voice, rate, pitch, language, detectedEmotion);
+      
+      // 合成完成后检查是否已被取消（stop() 被调用），如果是则跳过播放
+      if (!this.isPlaying) {
+        console.log(`[EdgeTtsService] 🛑 合成完成但已被取消，跳过播放`);
+        this.onDoneCallback = null;
+        this.onProgressCallback = null;
+        return () => this.stop();
+      }
+      
+      console.log(`[EdgeTtsService] ✅ 合成完成，开始播放...`);
 
-      await this.playAudio(audioUri, onStart, () => {
+      // onStart 已在 speak() 开头触发，playAudio 中不再重复触发
+      await this.playAudio(audioUri, undefined, () => {
+        console.log(`[EdgeTtsService] 🔔 playAudio onDone 被调用，this.onDoneCallback=${typeof this.onDoneCallback}`);
         this.isPlaying = false;
         this.clearProgressInterval();
         if (this.onDoneCallback) {
+          console.log(`[EdgeTtsService] 🔔 调用 this.onDoneCallback()`);
           this.onDoneCallback();
           this.onDoneCallback = null;
+          console.log(`[EdgeTtsService] 🔔 this.onDoneCallback 已置空`);
+        } else {
+          console.log(`[EdgeTtsService] ⚠️ this.onDoneCallback 为空，跳过`);
         }
-        onDone?.();
       }, onError);
 
-    } catch (error) {
+      console.log(`[EdgeTtsService] ✅ speak() 执行完毕`);
+
+    } catch (error: any) {
+      // 如果是 AbortError（stop() 取消了请求），不触发 onError
+      // React Native 中没有 DOMException，所以通过 error.name 判断
+      if (error?.name === 'AbortError') {
+        console.log(`[EdgeTtsService] 🛑 合成请求被取消（AbortError），跳过`);
+        this.isPlaying = false;
+        this.clearProgressInterval();
+        return () => this.stop();
+      }
       console.error('[EdgeTtsService] 合成失败:', error);
       this.isPlaying = false;
       this.clearProgressInterval();
@@ -1076,10 +1141,11 @@ class EdgeTtsService {
     onError?: (error: any) => void
   ): Promise<void> {
     try {
-      // 先触发 onStart，让用户立即知道开始播放了
+      // onStart 已在 speak() 开头触发，此处不再重复触发
       onStart?.();
 
       if (this.sound) {
+        console.log(`[EdgeTtsService] playAudio: 卸载旧 sound`);
         await this.sound.unloadAsync();
         this.sound = null;
       }
@@ -1093,18 +1159,25 @@ class EdgeTtsService {
         playThroughEarpieceAndroid: false,
       } as any);
 
-      console.log('[EdgeTtsService] 播放音频，URI 长度:', uri.length);
+      console.log('[EdgeTtsService] playAudio: 开始创建 Audio.Sound, URI 长度:', uri.length);
 
       const { sound } = await Audio.Sound.createAsync(
         { uri },
         {
           shouldPlay: true,
-          progressUpdateIntervalMillis: 50, // 更频繁的更新，确保高亮流畅
+          progressUpdateIntervalMillis: 50,
           isLooping: false,
           shouldCorrectPitch: false,
         },
         (status) => {
+          if (status.isLoaded) {
+            console.log(`[EdgeTtsService] 🔊 onPlaybackStatusUpdate: isLoaded=true, didJustFinish=${status.didJustFinish}, positionMillis=${status.positionMillis}, durationMillis=${status.durationMillis}`);
+          } else {
+            console.log(`[EdgeTtsService] 🔊 onPlaybackStatusUpdate: isLoaded=false, error=${status.error}`);
+          }
+          
           if (status.isLoaded && status.didJustFinish) {
+            console.log(`[EdgeTtsService] 🔊 播放完成! 调用 onDone`);
             // 播放完成，设置为 100% 进度
             if (this.onProgressCallback && this.currentText) {
               this.onProgressCallback(this.currentText.length);
@@ -1115,7 +1188,7 @@ class EdgeTtsService {
           // 使用音频的实际播放位置来计算字符进度
           if (status.isLoaded && status.positionMillis !== undefined && status.durationMillis !== undefined && status.durationMillis > 0) {
             const progressRatio = status.positionMillis / status.durationMillis;
-            const targetCharIndex = Math.floor(progressRatio * this.currentText.length);
+            const targetCharIndex = Math.round(progressRatio * this.currentText.length);
             
             if (this.onProgressCallback) {
               this.onProgressCallback(Math.min(targetCharIndex, this.currentText.length));
@@ -1125,7 +1198,7 @@ class EdgeTtsService {
       );
 
       this.sound = sound;
-      // 不再需要人工的 progressInterval，因为我们使用音频的真实进度
+      console.log(`[EdgeTtsService] ✅ Audio.Sound.createAsync 完成`);
 
     } catch (error) {
       console.error('[EdgeTtsService] 播放失败:', error);
@@ -1147,6 +1220,17 @@ class EdgeTtsService {
       this.sound.unloadAsync();
       this.sound = null;
     }
+    // 取消正在进行的 synthesizeAudio 请求（如果有），使 fetch 立即抛出 AbortError
+    if (this.abortController) {
+      console.log(`[EdgeTtsService] 🛑 取消正在进行的合成请求`);
+      this.abortController.abort();
+      this.abortController = null;
+    }
+    // 解除 speakMixed 中可能挂起的 Promise，防止 IIFE 永远不结束
+    if (this.resolveCurrentPromise) {
+      this.resolveCurrentPromise();
+      this.resolveCurrentPromise = null;
+    }
   }
 
   /**
@@ -1159,6 +1243,28 @@ class EdgeTtsService {
    * @param onProgress - 进度回调 (segmentIndex, charIndex)
    * @param emotions - 可选，每个片段对应的情感数组，长度需与 splitText 结果一致
    */
+  /**
+   * 按句子拆分文本（句号、问号、感叹号、换行符）
+   */
+  private splitSentences(text: string): string[] {
+    // 按句末标点或换行符拆分，保留标点符号在句子末尾
+    // 支持英文标点 (. ! ?) 和中文标点 (。！？)
+    const sentences: string[] = [];
+    // 匹配：任意字符（非贪婪）直到遇到句末标点或换行符
+    const regex = /[^.!?\n。！？]+[.!?。！？]|\n+|[^.!?\n。！？]+/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const s = match[0].trim();
+      if (s) {
+        // 如果全是换行符，跳过
+        if (/^\n+$/.test(s)) continue;
+        sentences.push(s);
+      }
+    }
+    // 如果没拆出任何句子，返回原始文本
+    return sentences.length > 0 ? sentences : [text.trim()];
+  }
+
   async speakMixed(
     text: string,
     onStart?: () => void,
@@ -1168,9 +1274,10 @@ class EdgeTtsService {
     emotions?: EmotionStyle[]
   ): Promise<() => void> {
     const segments = this.splitText(text);
-    console.log(`[EdgeTtsService] 混合播放，共 ${segments.length} 段`);
+    console.log(`[EdgeTtsService] speakMixed 被调用, text="${text.substring(0, 80)}...", segments=${segments.length}`);
 
     if (segments.length === 0) {
+      console.log(`[EdgeTtsService] ⚠️ 无有效片段，直接回调 onDone`);
       onDone?.();
       return () => {};
     }
@@ -1179,55 +1286,91 @@ class EdgeTtsService {
     const hasEnglish = segments.some(s => s.language === 'en');
     const hasChinese = segments.some(s => s.language === 'zh');
     const isPure = !hasEnglish || !hasChinese;
+    console.log(`[EdgeTtsService] hasEnglish=${hasEnglish}, hasChinese=${hasChinese}, isPure=${isPure}`);
+
+    let isCancelled = false;
 
     if (isPure) {
-      // 纯英文或纯中文，直接一次性播放
-      console.log(`[EdgeTtsService] 纯 ${hasEnglish ? '英文' : '中文'}，直接一次性播放`);
+      // 纯英文或纯中文：直接一次性播放整段文本
       const language = hasEnglish ? 'en' : 'zh';
       const emotion = emotions?.[0];
-      return await this.speak({
+
+      console.log(`[EdgeTtsService] 🎯 纯 ${language}，直接播放整段文本`);
+
+      this.speak({
         text,
         language,
         emotion,
         onStart,
         onDone,
         onError,
-        onProgress: (charIndex) => onProgress?.(0, charIndex)
-      });
-    }
-
-    // 确实是混合语言，按片段播放
-    let currentSegmentIndex = 0;
-    let isCancelled = false;
-
-    const playNextSegment = async () => {
-      if (isCancelled || currentSegmentIndex >= segments.length) {
-        onDone?.();
-        return;
-      }
-
-      const segment = segments[currentSegmentIndex];
-      const segmentEmotion = emotions?.[currentSegmentIndex];
-
-      await this.speak({
-        text: segment.text,
-        language: segment.language,
-        emotion: segmentEmotion,
-        onStart: currentSegmentIndex === 0 ? onStart : undefined,
-        onDone: () => {
-          currentSegmentIndex++;
-          playNextSegment();
-        },
-        onError,
         onProgress: (charIndex) => {
-          onProgress?.(currentSegmentIndex, charIndex);
+          onProgress?.(0, charIndex);
         }
       });
-    };
 
-    playNextSegment();
+      return () => {
+        console.log(`[EdgeTtsService] 🛑 返回 stop 函数（纯语言路径）`);
+        this.stop();
+      };
+    }
+
+    // 混合语言：按片段播放
+    console.log(`[EdgeTtsService] 🔀 混合语言路径，${segments.length} 个片段`);
+    (async () => {
+      console.log(`[EdgeTtsService] 🚀 混合语言 IIFE 开始执行`);
+      for (let i = 0; i < segments.length; i++) {
+        if (isCancelled) {
+          console.log(`[EdgeTtsService] 🛑 混合 IIFE 第 ${i} 段被取消`);
+          break;
+        }
+
+        const segment = segments[i];
+        const segmentEmotion = emotions?.[i];
+
+        console.log(`[EdgeTtsService] ▶️ 播放第 ${i + 1}/${segments.length} 段: "${segment.text.substring(0, 40)}..."`);
+
+        // 如果不是第一段，先等待 1500ms
+        if (i > 0) {
+          console.log(`[EdgeTtsService] ⏱ 片段间停顿 1500ms 开始...`);
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          console.log(`[EdgeTtsService] ⏱ 片段间停顿结束`);
+          if (isCancelled) break;
+        }
+
+        console.log(`[EdgeTtsService] ⏳ 等待第 ${i + 1} 段播放完成...`);
+        await new Promise<void>((resolve, reject) => {
+          this.resolveCurrentPromise = resolve;
+          this.speak({
+            text: segment.text,
+            language: segment.language,
+            emotion: segmentEmotion,
+            onStart: i === 0 ? onStart : undefined,
+            onDone: () => {
+              console.log(`[EdgeTtsService] ✅ 第 ${i + 1} 段 onDone 触发`);
+              this.resolveCurrentPromise = null;
+              resolve();
+            },
+            onError: (error) => {
+              console.log(`[EdgeTtsService] ❌ 第 ${i + 1} 段 onError:`, error);
+              this.resolveCurrentPromise = null;
+              reject(error);
+            },
+            onProgress: (charIndex) => {
+              onProgress?.(i, charIndex);
+            }
+          });
+        });
+        console.log(`[EdgeTtsService] ✅ 第 ${i + 1} 段播放完成 Promise 已 resolve`);
+      }
+      if (!isCancelled) {
+        console.log(`[EdgeTtsService] 🎉 所有片段播放完成，触发 onDone`);
+        onDone?.();
+      }
+    })();
 
     return () => {
+      console.log(`[EdgeTtsService] 🛑 返回 stop 函数（混合语言路径）`);
       isCancelled = true;
       this.stop();
     };

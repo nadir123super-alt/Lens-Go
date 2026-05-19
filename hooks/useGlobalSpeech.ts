@@ -47,6 +47,8 @@ export function useGlobalSpeech(): UseGlobalSpeechReturn {
   const isStoppedRef = useRef(false);
   const stopFnRef = useRef<(() => void) | null>(null);
   const totalCharCountRef = useRef(0);
+  // 保存原始文本（含标点），供 speakMixed 中的 splitSentences 正确识别句子边界
+  const originalTextRef = useRef<string>('');
 
   // 初始化 Edge TTS 服务
   useEffect(() => {
@@ -108,7 +110,8 @@ export function useGlobalSpeech(): UseGlobalSpeechReturn {
    */
   const playAllSegments = useCallback(async () => {
     const segments = segmentsRef.current;
-    const fullText = segments.map(s => s.text).join(' ');
+    // 使用原始文本（含标点），确保 speakMixed 中的 splitSentences 能正确识别句子边界
+    const fullText = originalTextRef.current || segments.map(s => s.text).join(' ');
 
     // 预计算每个片段的字符位置，用于全局字符进度
     const segmentStartChars: number[] = [];
@@ -203,8 +206,17 @@ export function useGlobalSpeech(): UseGlobalSpeechReturn {
   ) => {
     console.log(`[useGlobalSpeech] speak() 被调用: "${text.substring(0, 50)}..."`);
 
-    // 先停止当前播放
-    stop();
+    const cleanedText = text.trim();
+    if (!cleanedText) {
+      console.warn('[useGlobalSpeech] 文本为空，跳过播放');
+      return;
+    }
+
+    // 如果正在播放，先停止当前播放
+    if (isPlayingRef.current) {
+      console.log('[useGlobalSpeech] 当前正在播放，先停止');
+      stop();
+    }
 
     // 重置状态
     isStoppedRef.current = false;
@@ -213,17 +225,14 @@ export function useGlobalSpeech(): UseGlobalSpeechReturn {
     onProgressCallbackRef.current = onProgress || null;
     onGlobalCharProgressCallbackRef.current = onGlobalCharProgress || null;
 
-    const cleanedText = text.trim();
-    if (!cleanedText) {
-      console.warn('[useGlobalSpeech] 文本为空，跳过播放');
-      return;
-    }
-
     const segments = splitText(cleanedText);
     if (segments.length === 0) {
       console.warn('[useGlobalSpeech] 拆分后无有效片段');
       return;
     }
+
+    // 保存原始文本（含标点），供 playAllSegments 传递给 speakMixed
+    originalTextRef.current = cleanedText;
 
     totalCharCountRef.current = cleanedText.length;
     segmentsRef.current = segments;

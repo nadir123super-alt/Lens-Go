@@ -10,15 +10,15 @@ import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  FlatList,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    Animated,
+    FlatList,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -81,10 +81,14 @@ export default function OralHistoryScreen() {
           text: '删除',
           style: 'destructive',
           onPress: async () => {
+            // 1. 先立即从本地状态移除（不刷新页面）
+            setSessions((prev) => prev.filter((s) => s.id !== item.id));
+            
+            // 2. 后台执行数据库删除（不阻塞 UI，不显示加载）
             const success = await deleteOralSession(item.id);
-            if (success) {
-              setSessions((prev) => prev.filter((s) => s.id !== item.id));
-            } else {
+            if (!success) {
+              // 删除失败，恢复显示并提示用户
+              setSessions((prev) => [...prev, item]);
               Alert.alert('删除失败', '请稍后重试');
             }
           },
@@ -101,17 +105,20 @@ export default function OralHistoryScreen() {
         text: '清空',
         style: 'destructive',
         onPress: async () => {
+          // 1. 先立即清空本地状态（不刷新页面）
+          setSessions([]);
+          
+          // 2. 后台执行数据库清空（不阻塞 UI，不显示加载）
           const success = await clearAllOralSessions();
-          if (success) {
-            setSessions([]);
-            Alert.alert('✅ 已清空', '所有通话记录已清空');
-          } else {
+          if (!success) {
+            // 清空失败，重新加载数据
+            await loadSessions();
             Alert.alert('清空失败', '请稍后重试');
           }
         },
       },
     ]);
-  }, []);
+  }, [loadSessions]);
 
   // ── 渲染卡片 ──
   const renderSession = useCallback(

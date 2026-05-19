@@ -139,6 +139,7 @@ export async function analyzeCroppedPatch(croppedBase64, apiKey) {
             '⚠️ 重要：严禁使用 "I see a..."、"I found a..." 这样的简单句式。例句必须是真实场景对话，如询问、描述、感叹、建议等不同语气。\n' +
             '⚠️ 关键约束：每个 en 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 en 字段中，只能有一个句号或感叹号或问号。\n' +
             '⚠️ 每个 cn 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n' +
+            '⚠️ 严格禁止：不得使用任何表情符号（emoji）、颜文字或特殊符号。只返回纯文本内容。\n' +
             '你必须且只能返回如下固定 JSON 格式（不要任何 Markdown 标记或额外文字）：\n' +
             '{"word":"lamp","translation":"台灯","examples":[{"en":"Could you turn on the lamp?","cn":"你能把台灯打开吗？"},{"en":"This lamp gives such a warm and cozy glow.","cn":"这盏灯发出温暖舒适的光。"}]}\n' +
             '请确保 JSON 结构完整，必须以 } 结尾。\n' +
@@ -874,6 +875,7 @@ async function callAiForWordDetails(word, apiKey) {
             `⚠️ 重要：严禁使用 "I see a..."、"I found a..." 这样的简单句式。例句必须是真实场景对话，如询问、描述、感叹、建议等不同语气。\n` +
             `⚠️ 关键约束：每个英文例句必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个英文例句中，只能有一个句号或感叹号或问号。\n` +
             `⚠️ 每个中文翻译也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
+            `⚠️ 严格禁止：不得使用任何表情符号（emoji）、颜文字或特殊符号。只返回纯文本内容。\n` +
             `⚠️ 重要：You MUST return exactly 2 example sentences for each word in JSON format. If you cannot provide them, return an error instead of an empty field.（你必须为每个单词返回准确的 2 个例句。如果无法提供，请返回错误而不是空字段。）\n` +
             `必须返回纯 JSON 格式（不要任何 Markdown 标记或额外文字）：\n` +
             `{\n` +

@@ -425,31 +425,41 @@ export async function saveReminderSettings(settings: ReminderSettings): Promise<
   }
 }
 
-export async function enableReminder(hour: number, minute: number): Promise<{ success: boolean; needSettings: boolean; notificationUsed: boolean }> {
+export async function enableReminder(hour: number, minute: number): Promise<{ success: boolean; needSettings: boolean; notificationUsed: boolean; method: 'notification' | 'calendar' | 'both' }> {
   const notificationResult = await requestNotificationPermission();
   
   if (!notificationResult.available) {
+    // Expo Go Android 环境：仅使用日历提醒
     await setupCalendarEvent(hour, minute);
     await saveReminderSettings({ enabled: true, hour, minute });
-    return { success: true, needSettings: false, notificationUsed: false };
+    console.log('[Reminder] 提醒已启用（使用日历日程）');
+    return { success: true, needSettings: false, notificationUsed: false, method: 'calendar' };
   }
   
   if (!notificationResult.granted && !notificationResult.canAskAgain) {
+    // 用户拒绝通知权限且无法再次请求：使用日历提醒
     await setupCalendarEvent(hour, minute);
     await saveReminderSettings({ enabled: true, hour, minute });
-    return { success: true, needSettings: true, notificationUsed: false };
+    console.log('[Reminder] 提醒已启用（通知权限被拒绝，使用日历日程）');
+    return { success: true, needSettings: true, notificationUsed: false, method: 'calendar' };
   }
   
   let notificationUsed = false;
+  let method: 'notification' | 'calendar' | 'both' = 'calendar';
+  
   if (notificationResult.granted) {
     notificationUsed = await scheduleDailyNotification(hour, minute);
+    if (notificationUsed) {
+      method = 'both';
+    }
   }
 
   await setupCalendarEvent(hour, minute);
 
   await saveReminderSettings({ enabled: true, hour, minute });
   
-  return { success: true, needSettings: false, notificationUsed };
+  console.log(`[Reminder] 提醒已启用（${method === 'both' ? '通知 + 日历' : '仅日历'}）`);
+  return { success: true, needSettings: false, notificationUsed, method };
 }
 
 export async function disableReminder(): Promise<void> {

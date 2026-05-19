@@ -1,0 +1,2 @@
+Bytes 20-30 hex: 656e20e2803fe998b6e6
+Bytes 20-30: b'en \xe2\x80?\xe9\x98\xb6\xe6'
