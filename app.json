@@ -25,7 +25,9 @@
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR"
       ],
       "package": "com.anonymous.LensGo"
     },
@@ -57,7 +59,8 @@
           "color": "#FF6B6B",
           "sounds": []
         }
-      ]
+      ],
+      "expo-calendar"
     ],
     "assetBundlePatterns": [
       "assets/*"

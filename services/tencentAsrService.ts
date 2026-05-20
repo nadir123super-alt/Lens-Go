@@ -305,10 +305,17 @@ export async function transcribeWithTencent(audioUri: string): Promise<string> {
 
     // 2. 构建请求参数
     const timestamp = Math.floor(Date.now() / 1000);
+    // ★ 修复：根据平台选择正确的采样率服务
+    // Android AMR-NB 编码后实际为 8kHz，必须使用 8k 服务
+    // iOS PCM 为 16kHz，使用 16k 服务
+    // 否则采样率不匹配会导致 ASR 解码失败
+    const audioFormat = getAudioFormat();
+    const engSerViceType = audioFormat === 'amr' ? '8k_zh' : '16k_zh_en';
+    console.log(`[TencentASR] 音频格式: ${audioFormat}, 使用服务: ${engSerViceType}`);
     const payload = {
-      EngSerViceType: '16k_zh_en',  // 16k 中英文混合
+      EngSerViceType: engSerViceType,
       SourceType: 1,                 // 1: 本地语音上传
-      VoiceFormat: getAudioFormat(), // 根据平台自动选择
+      VoiceFormat: audioFormat,      // 根据平台自动选择
       Data: data,                    // Base64 编码的音频数据
       DataLen: dataLen,              // 音频数据长度
     };

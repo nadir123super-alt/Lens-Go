@@ -68,6 +68,27 @@ export async function forceSpeakerOutput(): Promise<void> {
 }
 
 /**
+ * 尝试提高 Android 麦克风输入增益。
+ * 通过 AudioManager 设置麦克风音量为最大。
+ * 在录音开始前调用此函数。
+ */
+export async function boostMicrophoneGain(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    // 方法 1: 通过 NativeModules 调用 AudioManager
+    const AudioManager = (NativeModules as any).AudioManager;
+    if (AudioManager?.setMicrophoneBoost) {
+      await AudioManager.setMicrophoneBoost(true);
+      console.log('[recordingService] ✅ Android Native: setMicrophoneBoost(true)');
+    } else {
+      console.log('[recordingService] ℹ️ Android Native: setMicrophoneBoost 不可用');
+    }
+  } catch (e: any) {
+    console.warn('[recordingService] ⚠️ boostMicrophoneGain 失败:', e?.message);
+  }
+}
+
+/**
  * 注册音频会话强化器到 SoundManager。
  * 这样每次 TTS 播放前都会自动调用 forceSpeakerOutput() 确保最大音量。
  */
@@ -287,8 +308,10 @@ export async function prepareToRecord(preload: boolean = false): Promise<void> {
 
 export const AUDIO_ENCODING_ANDROID = 'amr-nb';  // AV 编码器参数
 export const AUDIO_ISE_ENCODING_ANDROID = 'amr';  // 讯飞 API 兼容名称
-export const AUDIO_SAMPLE_RATE_ANDROID = 8000;
-export const AUDIO_FORMAT_ANDROID = 'audio/L16;rate=8000';
+// ★ 与 RECORDING_OPTIONS.android.sampleRate 保持一致（16000Hz）
+// 更高的采样率提供更丰富的音频细节，有助于 ASR/ISE 引擎识别
+export const AUDIO_SAMPLE_RATE_ANDROID = 16000;
+export const AUDIO_FORMAT_ANDROID = 'audio/L16;rate=16000';
 
 export const AUDIO_ENCODING_IOS = 'raw';
 export const AUDIO_ISE_ENCODING_IOS = 'raw';
@@ -301,7 +324,9 @@ export const AUDIO_FORMAT_IOS = 'audio/L16;rate=16000';
 const RECORDING_OPTIONS: Audio.RecordingOptions = {
   android: {
     extension: '.3gp',
-    sampleRate: 8000,
+    // ★ 从 8000 Hz 提升到 16000 Hz，给 ISE 引擎提供更多音频数据
+    // 更高的采样率意味着更丰富的音频细节，有助于 ISE 识别微弱声音
+    sampleRate: 16000,
     numberOfChannels: 1,
     outputFormat: Audio.AndroidOutputFormat.THREE_GPP,
     audioEncoder: Audio.AndroidAudioEncoder.AMR_NB,
@@ -372,6 +397,9 @@ export async function startRecording(): Promise<void> {
   resetVolumeTracking();
   _startTimestamp = Date.now();
   _intentionalStop = false;
+
+  // ★ 在录音开始前尝试提高麦克风增益
+  await boostMicrophoneGain();
 
   // 1. 显式请求录音权限
   const { status } = await Audio.requestPermissionsAsync();
@@ -512,9 +540,9 @@ export async function startRecording(): Promise<void> {
     throw new Error(`录音启动失败: ${startErr?.message || '未知错误'}`);
   }
 
-  // 6. 自动停止安全阀：15秒后强制结束（从10秒延长，给用户更多思考和喘气时间）
+  // 6. 自动停止安全阀：20秒后强制结束（从15秒延长，给用户更多思考和喘气时间）
   _autoStopTimer = setTimeout(async () => {
-    console.warn('[recordingService] ⏰ 录音超过 15 秒，自动停止安全阀触发');
+    console.warn('[recordingService] ⏰ 录音超过 20 秒，自动停止安全阀触发');
     if (_onAutoStopCallback) {
       _onAutoStopCallback();
     } else {

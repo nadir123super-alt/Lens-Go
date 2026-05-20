@@ -217,9 +217,9 @@ export function calculateRealWordScore(
   // 使用字符串相似度作为主要评分依据
   const similarity = calculateStringSimilarity(transcribedText, targetText);
   
-  // ★ 乱读检测：如果相似度极低（低于 30%），说明用户读的单词与目标单词完全无关
+  // ★ 乱读检测：如果相似度低于 40%，说明用户读的单词与目标单词差异很大
   // 例如目标词是 "toothpaste"，用户读 "Apple" 或随便说了别的词，直接给 0 分
-  if (similarity < 30) {
+  if (similarity < 40) {
     console.log(
       `[practiceService] 🚫 单词乱读检测: similarity=${similarity}%, ` +
       `transcribed="${transcribedText}", target="${targetText}", 返回 0 分`
@@ -229,20 +229,61 @@ export function calculateRealWordScore(
   
   // 将 ISE 原始分数与字符串相似度结合
   // ISE 分数反映发音准确度，字符串相似度反映单词识别正确性
-  let finalScore = Math.round((similarity * 0.7 + rawScore * 0.3));
+  // ★ 大幅提高相似度权重（0.8→0.9），ISE 原始分仅作微调（0.2→0.1）
+  let finalScore = Math.round((similarity * 0.9 + rawScore * 0.1));
   
-  // ★ 高分段严格化：85-100 分区间，要求更高
-  // 原来的 85 分现在只对应 ~75 分，需要更好的发音才能达到 85+
-  // 使用非线性压缩：分数越高，提升越难
-  if (finalScore >= 85) {
-    // 将 85-100 映射到 75-100，中间区域压缩更明显
-    // 85→75, 90→82, 95→92, 100→100
-    const compressed = 75 + Math.pow((finalScore - 85) / 15, 1.3) * 25;
+  // ★ 低分段（60-79）保持原有严格度，不做额外调整
+  if (finalScore >= 60 && finalScore < 80) {
+    const compressed = 60 + Math.pow((finalScore - 60) / 20, 1.3) * 20;
     finalScore = Math.round(compressed);
     console.log(
-      `[practiceService] 📊 高分段压缩: original=${Math.round(similarity * 0.7 + rawScore * 0.3)}, ` +
+      `[practiceService] 📊 60-79 分段: original=${Math.round(similarity * 0.9 + rawScore * 0.1)}, ` +
       `compressed=${finalScore}`
     );
+  }
+  
+  // ★ 高分阶段（80-94）逐步提高严格度：使用更高的指数 1.5
+  // 分数越高，压缩越明显
+  // 80→76, 82→78, 84→80, 86→83, 88→85, 90→88, 92→91, 94→93
+  if (finalScore >= 80 && finalScore < 95) {
+    const compressed = 80 + Math.pow((finalScore - 80) / 15, 1.5) * 15;
+    finalScore = Math.round(compressed);
+    console.log(
+      `[practiceService] 📊 80-94 高分段严格化: original=${Math.round(similarity * 0.9 + rawScore * 0.1)}, ` +
+      `compressed=${finalScore}`
+    );
+  }
+  
+  // ★ 95-100 分区间严格化：只有真正像外国人一样的发音才能得到这个区间的分数
+  // 使用指数 4.0 曲线，要求 ISE 原始分 >= 85 才有资格进入此区间
+  // 95→89.0, 96→89.4, 97→90.4, 98→92.4, 99→96.0, 99.5→98.4, 100→100
+  // ISE rawScore 必须 >= 85 才能进入 95-100 区间，否则即使 finalScore 计算值 >= 95 也被压制
+  if (finalScore >= 95) {
+    // 如果 ISE 原始分低于 85，说明发音质量不够 native，强制降级到 94 以下
+    if (rawScore < 85) {
+      const cappedScore = Math.min(94, 80 + (rawScore - 60) * 0.35);
+      finalScore = Math.round(Math.max(80, cappedScore));
+      console.log(
+        `[practiceService] 🚫 95-100 区间准入拒绝: rawScore=${rawScore} < 85, ` +
+        `降级至 ${finalScore} 分`
+      );
+    } else {
+      // ISE 原始分 >= 85，使用指数 4.0 严格压缩
+      let compressed = 95 + Math.pow((finalScore - 95) / 5, 4.0) * 5;
+      // 即使 rawScore >= 85，如果 rawScore < 92，最高只能到 98
+      if (rawScore < 92 && compressed > 98) {
+        compressed = 98;
+      }
+      // 只有 rawScore >= 95 才能触及 100 分
+      if (rawScore < 95 && compressed >= 99.5) {
+        compressed = 99;
+      }
+      finalScore = Math.round(compressed * 10) / 10;
+      console.log(
+        `[practiceService] 📊 95-100 native 级严格化: original=${Math.round(similarity * 0.9 + rawScore * 0.1)}, ` +
+        `rawScore=${rawScore}, compressed=${finalScore}`
+      );
+    }
   }
   
   return Math.min(100, Math.max(0, finalScore));
@@ -305,31 +346,72 @@ export function calculateRealSentenceScore(
   }
   
   // 计算得分：基于匹配率的非线性映射
-  // 准确率 60% 对应 60 分，低于 40% 得分在 40 以下
+  // ★ 进一步严格化：提高各分数段门槛
+  // 低于 30% 准确率：线性映射，最高 30 分
+  // 30%-50% 准确率：提升曲线，从 30 到 50
+  // 50%+ 准确率：提升曲线，50 到 100
   let finalScore: number;
 
-  if (matchRate < 0.4) {
-    // 低于 40% 准确率：线性映射，最高 40 分
+  if (matchRate < 0.30) {
+    // 低于 30% 准确率：线性映射，最高 30 分
     finalScore = matchRate * 100;
-  } else if (matchRate < 0.6) {
-    // 40%-60% 准确率：提升曲线，从 40 到 60
-    finalScore = 40 + (matchRate - 0.4) * 100;
+  } else if (matchRate < 0.50) {
+    // 30%-50% 准确率：提升曲线，从 30 到 50
+    finalScore = 30 + (matchRate - 0.30) * 100;
   } else {
-    // 60%+ 准确率：提升曲线，60 到 100
-    finalScore = 60 + (matchRate - 0.6) * 100;
+    // 50%+ 准确率：提升曲线，50 到 100
+    finalScore = 50 + (matchRate - 0.50) * 100;
   }
 
-  // 结合 ISE 原始分数作为微调
-  finalScore = Math.round((finalScore * 0.8 + rawScore * 0.2));
+  // ★ 结合 ISE 原始分数作为微调，ISE 权重降至最低（0.15→0.1）
+  finalScore = Math.round((finalScore * 0.9 + rawScore * 0.1));
 
-  // ★ 高分段严格化：85-100 分区间，要求更高（与单词评分保持一致）
-  if (finalScore >= 85) {
-    const compressed = 75 + Math.pow((finalScore - 85) / 15, 1.3) * 25;
+  // ★ 低分段（60-79）保持原有严格度，不做额外调整（与单词评分保持一致）
+  if (finalScore >= 60 && finalScore < 80) {
+    const compressed = 60 + Math.pow((finalScore - 60) / 20, 1.3) * 20;
     finalScore = Math.round(compressed);
     console.log(
-      `[practiceService] 📊 例句高分段压缩: original=${Math.round(finalScore)}, ` +
+      `[practiceService] 📊 例句 60-79 分段: original=${Math.round(finalScore)}, ` +
       `compressed=${finalScore}`
     );
+  }
+
+  // ★ 高分阶段（80-94）逐步提高严格度：使用更高的指数 1.5（与单词评分保持一致）
+  // 80→76, 82→78, 84→80, 86→83, 88→85, 90→88, 92→91, 94→93
+  if (finalScore >= 80 && finalScore < 95) {
+    const compressed = 80 + Math.pow((finalScore - 80) / 15, 1.5) * 15;
+    finalScore = Math.round(compressed);
+    console.log(
+      `[practiceService] 📊 例句 80-94 高分段严格化: original=${Math.round(finalScore)}, ` +
+      `compressed=${finalScore}`
+    );
+  }
+
+  // ★ 95-100 分区间严格化：只有真正像外国人一样的发音才能得到这个区间的分数（与单词评分保持一致）
+  // 指数 4.0：95→89.0, 96→89.4, 97→90.4, 98→92.4, 99→96.0, 99.5→98.4, 100→100
+  // ISE rawScore 必须 >= 85 才能进入 95-100 区间
+  if (finalScore >= 95) {
+    if (rawScore < 85) {
+      const cappedScore = Math.min(94, 80 + (rawScore - 60) * 0.35);
+      finalScore = Math.round(Math.max(80, cappedScore));
+      console.log(
+        `[practiceService] 🚫 例句 95-100 区间准入拒绝: rawScore=${rawScore} < 85, ` +
+        `降级至 ${finalScore} 分`
+      );
+    } else {
+      let compressed = 95 + Math.pow((finalScore - 95) / 5, 4.0) * 5;
+      if (rawScore < 92 && compressed > 98) {
+        compressed = 98;
+      }
+      if (rawScore < 95 && compressed >= 99.5) {
+        compressed = 99;
+      }
+      finalScore = Math.round(compressed * 10) / 10;
+      console.log(
+        `[practiceService] 📊 例句 95-100 native 级严格化: original=${Math.round(finalScore)}, ` +
+        `rawScore=${rawScore}, compressed=${finalScore}`
+      );
+    }
   }
 
   console.log(
@@ -595,11 +677,17 @@ export function getScoreFeedback(score: number): {
   feedback: string;
   color: string;
 } {
+  if (score >= 95) {
+    return { level: '完美 🌟', feedback: '发音非常标准，重音轻音和语调都很出色！', color: '#2ECC71' };
+  }
   if (score >= 90) {
-    return { level: '完美 🌟', feedback: '发音非常标准！', color: '#2ECC71' };
+    return { level: '优秀 👍', feedback: '发音很好，继续保持！', color: '#27AE60' };
+  }
+  if (score >= 85) {
+    return { level: '良好 ✅', feedback: '大部分发音准确，注意个别重音和语调', color: '#3498DB' };
   }
   if (score >= 80) {
-    return { level: '优秀 👍', feedback: '发音很好，继续保持！', color: '#27AE60' };
+    return { level: '不错 📈', feedback: '基本正确，注意发音细节和语调起伏', color: '#5DADE2' };
   }
   if (score >= 65) {
     return { level: '不错 💪', feedback: '基本正确，注意个别发音细节', color: '#F39C12' };

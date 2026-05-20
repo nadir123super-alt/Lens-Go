@@ -35,6 +35,16 @@ export class EdgeTts {
 
       const ws = new WebSocket(url.toString());
       let audioChunks: Uint8Array[] = [];
+      let isResolved = false;
+
+      // 连接超时：15 秒后如果还没收到音频数据，则超时
+      const connectTimeout = setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          ws.close();
+          reject(new Error('WebSocket connection timeout after 15s'));
+        }
+      }, 15000);
 
       const initialMessage = `X-Timestamp:${new Date().toUTCString()}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"${outputFormat}"}}}}`;
 
@@ -59,6 +69,7 @@ export class EdgeTts {
         } else {
           const data = event.data as string;
           if (data.includes('Path:turn.end')) {
+            clearTimeout(connectTimeout);
             const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
             const audioData = new Uint8Array(totalLength);
             let offset = 0;
@@ -66,6 +77,7 @@ export class EdgeTts {
               audioData.set(chunk, offset);
               offset += chunk.length;
             }
+            isResolved = true;
             ws.close();
             resolve(audioData);
           }
@@ -73,12 +85,30 @@ export class EdgeTts {
       });
 
       ws.addEventListener('error', (error) => {
-        reject(error);
+        clearTimeout(connectTimeout);
+        if (!isResolved) {
+          isResolved = true;
+          reject(error);
+        }
       });
 
       ws.addEventListener('close', () => {
-        if (audioChunks.length === 0) {
-          reject(new Error('No audio data received'));
+        clearTimeout(connectTimeout);
+        if (!isResolved) {
+          isResolved = true;
+          if (audioChunks.length > 0) {
+            // 有部分音频数据但未收到 Path:turn.end，用已有数据 resolve
+            const totalLength = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const audioData = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of audioChunks) {
+              audioData.set(chunk, offset);
+              offset += chunk.length;
+            }
+            resolve(audioData);
+          } else {
+            reject(new Error('No audio data received'));
+          }
         }
       });
     });

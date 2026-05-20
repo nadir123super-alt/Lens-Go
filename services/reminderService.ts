@@ -219,9 +219,12 @@ export async function scheduleDailyNotification(hour: number, minute: number): P
   }
 }
 
-export async function setupCalendarEvent(hour: number, minute: number): Promise<void> {
+export async function setupCalendarEvent(hour: number, minute: number): Promise<boolean> {
   const hasPermission = await requestCalendarPermission();
-  if (!hasPermission) return;
+  if (!hasPermission) {
+    console.warn('[Reminder] 日历权限未授予，无法创建日历日程');
+    return false;
+  }
 
   let defaultCalendarSource: Calendar.Source;
   try {
@@ -233,7 +236,7 @@ export async function setupCalendarEvent(hour: number, minute: number): Promise<
     }
   } catch (e) {
     console.warn('[Reminder] 获取日历源失败:', e);
-    return;
+    return false;
   }
 
   let calendar;
@@ -246,7 +249,7 @@ export async function setupCalendarEvent(hour: number, minute: number): Promise<
     );
   } catch (e) {
     console.warn('[Reminder] 获取日历列表失败:', e);
-    return;
+    return false;
   }
 
   if (!calendar) {
@@ -265,13 +268,13 @@ export async function setupCalendarEvent(hour: number, minute: number): Promise<
       calendar = calendars.find((cal) => cal.id === newCalendarId);
     } catch (e) {
       console.warn('[Reminder] 创建日历失败:', e);
-      return;
+      return false;
     }
   }
 
   if (!calendar) {
     console.warn('[Reminder] 无法获取或创建日历');
-    return;
+    return false;
   }
 
   const existingEventId = await AsyncStorage.getItem(STORAGE_KEY_CALENDAR_EVENT_ID);
@@ -300,8 +303,10 @@ export async function setupCalendarEvent(hour: number, minute: number): Promise<
 
     await AsyncStorage.setItem(STORAGE_KEY_CALENDAR_EVENT_ID, eventId);
     console.log(`[Reminder] 日历日程已创建: ${hour}:${minute.toString().padStart(2, '0')}`);
+    return true;
   } catch (e) {
     console.warn('[Reminder] 创建日历事件失败:', e);
+    return false;
   }
 }
 
@@ -430,18 +435,28 @@ export async function enableReminder(hour: number, minute: number): Promise<{ su
   
   if (!notificationResult.available) {
     // Expo Go Android 环境：仅使用日历提醒
-    await setupCalendarEvent(hour, minute);
+    const calendarOk = await setupCalendarEvent(hour, minute);
     await saveReminderSettings({ enabled: true, hour, minute });
-    console.log('[Reminder] 提醒已启用（使用日历日程）');
-    return { success: true, needSettings: false, notificationUsed: false, method: 'calendar' };
+    if (calendarOk) {
+      console.log('[Reminder] 提醒已启用（使用日历日程）');
+      return { success: true, needSettings: false, notificationUsed: false, method: 'calendar' };
+    } else {
+      console.warn('[Reminder] 日历日程创建失败，提醒设置已保存但未生效');
+      return { success: false, needSettings: false, notificationUsed: false, method: 'calendar' };
+    }
   }
   
   if (!notificationResult.granted && !notificationResult.canAskAgain) {
     // 用户拒绝通知权限且无法再次请求：使用日历提醒
-    await setupCalendarEvent(hour, minute);
+    const calendarOk = await setupCalendarEvent(hour, minute);
     await saveReminderSettings({ enabled: true, hour, minute });
-    console.log('[Reminder] 提醒已启用（通知权限被拒绝，使用日历日程）');
-    return { success: true, needSettings: true, notificationUsed: false, method: 'calendar' };
+    if (calendarOk) {
+      console.log('[Reminder] 提醒已启用（通知权限被拒绝，使用日历日程）');
+      return { success: true, needSettings: true, notificationUsed: false, method: 'calendar' };
+    } else {
+      console.warn('[Reminder] 日历日程创建失败，提醒设置已保存但未生效');
+      return { success: false, needSettings: true, notificationUsed: false, method: 'calendar' };
+    }
   }
   
   let notificationUsed = false;
@@ -454,7 +469,11 @@ export async function enableReminder(hour: number, minute: number): Promise<{ su
     }
   }
 
-  await setupCalendarEvent(hour, minute);
+  const calendarOk = await setupCalendarEvent(hour, minute);
+  if (!calendarOk && method === 'calendar') {
+    // 如果通知也没用上，日历也失败，则整体失败
+    method = 'calendar';
+  }
 
   await saveReminderSettings({ enabled: true, hour, minute });
   

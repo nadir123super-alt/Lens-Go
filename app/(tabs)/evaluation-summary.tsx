@@ -10,23 +10,24 @@
  */
 
 import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useGlobalSpeech } from '@/hooks/useGlobalSpeech';
 import { usePracticeContext } from '@/services/practiceContext';
 import {
-    getAverageScore,
-    getScoreFeedback,
-    isAllPerfect
+  getAverageScore,
+  getScoreFeedback,
+  isAllPerfect
 } from '@/services/practiceService';
 
 const ANCHOR = '#FF6B6B';
@@ -35,6 +36,16 @@ export default function EvaluationSummaryScreen() {
   const insets = useSafeAreaInsets();
   const { lastScores, resetPractice } = usePracticeContext();
   const { stop: stopGlobalSpeech } = useGlobalSpeech();
+
+  // ★ 页面失去焦点时（切换到其他 Tab）立即停止所有音频播放
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        console.log('[evaluation-summary] 🚫 页面失去焦点，停止音频播放');
+        stopGlobalSpeech();
+      };
+    }, [stopGlobalSpeech])
+  );
 
   // 直接从 Context 读取成绩，不依赖组件内临时内存
   const scores = lastScores;

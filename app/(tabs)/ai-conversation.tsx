@@ -17,11 +17,12 @@
  */
 import { Feather } from '@expo/vector-icons';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -44,18 +45,62 @@ interface Message {
   text: string;
 }
 
-// ====== 开场白库（简短、多样） ======
+// ====== 开场白库（互动式、多样化） ======
+// 包含日常问候、心情询问、角色扮演提议、趣味游戏等
 const OPENING_LINES = [
-  "Hey! How's your day going?",
-  "Hi there! What do you want to talk about today?",
-  "Hello! I'm glad to chat with you. What's new?",
-  "Hey! What have you been up to lately?",
-  "Hi! Let's have a fun chat. Any plans for today?",
-  "Hello there! How are you feeling right now?",
-  "Hey! I was just thinking about you. What's on your mind?",
-  "Hi! Ready for a quick chat? I'm all ears.",
-  "Hey! Tell me something interesting that happened recently.",
-  "Hi! Let's practice together. What would you like to say?",
+  // --- 日常互动 ---
+  "Hey! What are you doing right now? I'd love to hear about it.",
+  "Hi there! How was your day today? Anything exciting happen?",
+  "Hello! How are you feeling at this moment? Happy, tired, or something else?",
+  "Hey! What have you been up to lately? Any new hobbies or adventures?",
+  "Hi! Tell me about something that made you smile today.",
+  "Hello! What's on your mind right now? Let's chat about it.",
+  "Hey! I'm curious — what's the most interesting thing that happened to you this week?",
+  "Hi! How's your mood today? I'm here to listen and chat.",
+  "Hey! What are you working on or studying these days?",
+  "Hello! Let's start with a simple question — how are you, really?",
+
+  // --- 角色扮演提议 ---
+  "Hey! Want to try a role-play? Imagine you're ordering coffee at a cafe in New York. I'll be the barista!",
+  "Hi! How about a fun role-play? Let's pretend you're checking into a hotel in London, and I'm the receptionist.",
+  "Hello! Feeling adventurous? Let's do a role-play — you're at a restaurant in Paris ordering dinner, and I'm the waiter.",
+  "Hey! Let's try something fun — imagine you're at an airport asking for directions, and I'm the information desk staff.",
+  "Hi! Want to practice a real-life scenario? Let's pretend you're at a job interview, and I'm the hiring manager.",
+  "Hey! How about a role-play? You're shopping at a mall in Sydney, and I'm the shop assistant. Ready?",
+  "Hi! Let's do a role-play — you're at a doctor's appointment in the US, and I'm the doctor. What seems to be the problem?",
+  "Hello! Want to try a role-play? Imagine you're making a new friend at a party in New York. I'll start — 'Hi, I'm Luna! This is such a great party, isn't it?'",
+
+  // --- 唱歌挑战 ---
+  "Hey! Wanna try something fun? How about singing a few lines from your favorite English song? I'll join in!",
+  "Hi! Let's do a karaoke moment! Pick any English song and sing a couple of lines. I'll sing along with you!",
+
+  // --- 猜词游戏 ---
+  "Hey! Let's play a word guessing game! I'll describe something in English, and you try to guess what it is. Ready?",
+  "Hi! Wanna play a fun game? I'll give you clues about a word, and you guess it. Let's start with an easy one!",
+
+  // --- 20个问题 ---
+  "Hey! Let's play 20 questions! I'm thinking of something, and you ask me yes-or-no questions to figure out what it is. Go ahead, ask away!",
+  "Hi! How about a guessing game? I've got something in mind — you've got 20 yes-or-no questions to figure it out. What's your first question?",
+
+  // --- 故事接龙 ---
+  "Hey! Let's create a story together! I'll start: 'Once upon a time, in a tiny village hidden between two mountains...' Now you continue!",
+  "Hi! Wanna make up a crazy story? I'll begin: 'I woke up this morning and realized I could talk to animals...' Your turn, what happens next?",
+
+  // --- 电影台词模仿 ---
+  "Hey! Let's do movie quotes! I'll say a famous line from a movie, and you try to say the next line. Ready? 'I'll be back...'",
+  "Hi! Wanna play movie quotes? I'll start with a classic: 'May the Force be with you.' Now you say something back!",
+
+  // --- 笑话时间 ---
+  "Hey! Let's share some jokes! I'll tell you a funny one: 'Why don't scientists trust atoms? Because they make up everything!' Got any jokes to share?",
+  "Hi! Wanna hear a joke? 'What do you call a bear with no teeth? A gummy bear!' Okay your turn — tell me a funny one in English!",
+
+  // --- 绕口令挑战 ---
+  "Hey! Can you say this tongue twister? 'She sells seashells by the seashore.' Try it! Let's see how fast you can say it!",
+  "Hi! Let's try a tongue twister challenge! Repeat after me: 'How much wood would a woodchuck chuck if a woodchuck could chuck wood?' Your turn!",
+
+  // --- 魔法咒语 ---
+  "Hey! Let's pretend we're in a wizard school! I'll teach you a magic spell in English. Repeat after me: 'Lumos!' — that's the spell to light up your wand!",
+  "Hi! Wanna be a wizard for a bit? I'm Professor Luna! Today's spell is 'Wingardium Leviosa' — try saying it!",
 ];
 
 function getRandomOpening(): string {
@@ -64,7 +109,9 @@ function getRandomOpening(): string {
 
 // ====== 常量 ======
 const INACTIVITY_TIMEOUT_MS = 60_000; // 1 分钟
-const VAD_SILENCE_THRESHOLD_DB = -50; // 静音阈值 (dBFS)，高于此值视为有人说话
+// ★ 降低 VAD 阈值从 -50 到 -55 dBFS，提高对微弱声音的敏感度
+// 让更轻柔的说话声也能被检测到，避免因音量略低而被误判为静音
+const VAD_SILENCE_THRESHOLD_DB = -55; // 静音阈值 (dBFS)，高于此值视为有人说话
 const VAD_SILENCE_TIMEOUT_MS = 1800;  // 静音持续 1.8 秒触发断句
 const METERING_INTERVAL_MS = 150;     // 音量采样间隔 150ms
 const WAVEFORM_BARS = 32;             // 波形条数量
@@ -75,7 +122,9 @@ const RECORDING_OPTIONS: Audio.RecordingOptions = {
     extension: '.3gp',
     outputFormat: Audio.AndroidOutputFormat.THREE_GPP,
     audioEncoder: Audio.AndroidAudioEncoder.AMR_NB,
-    sampleRate: 8000,
+    // ★ 从 8000Hz 提升到 16000Hz，与 recordingService 保持一致
+    // 更高的采样率提供更丰富的音频细节，有助于 ASR 识别
+    sampleRate: 16000,
     numberOfChannels: 1,
     bitRate: 128000,
   },
@@ -112,6 +161,8 @@ export default function AIConversationScreen() {
   }, []);
   const [messages, setMessages] = useState<Message[]>([]);
   const [aiText, setAiText] = useState('');
+  // 逐字呈现：根据 TTS 朗读进度显示 aiText 的一部分
+  const [displayedText, setDisplayedText] = useState('');
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(WAVEFORM_BARS).fill(0));
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [achievementModalVisible, setAchievementModalVisible] = useState(false);
@@ -162,8 +213,19 @@ export default function AIConversationScreen() {
       isMountedRef.current = false;
       clearInactivityTimer();
       cleanupRecording();
+      stopGlobalSpeech();
     };
-  }, []);
+  }, [stopGlobalSpeech]);
+
+  // ★ 页面失去焦点时（切换到其他 Tab）立即停止所有音频播放
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        console.log('[ai-conversation] 🚫 页面失去焦点，停止音频播放');
+        stopGlobalSpeech();
+      };
+    }, [stopGlobalSpeech])
+  );
 
   // ====== 呼吸动画（idle 状态） ======
   useEffect(() => {
@@ -329,6 +391,16 @@ export default function AIConversationScreen() {
         interruptionModeIOS: InterruptionModeIOS.DoNotMix,
         playThroughEarpieceAndroid: false,
       } as any);
+
+      // ★ 尝试提高麦克风增益（Android）
+      if (Platform.OS === 'android') {
+        try {
+          const { boostMicrophoneGain } = await import('../../services/recordingService');
+          await boostMicrophoneGain();
+        } catch (e: any) {
+          console.warn('[AIConversation] boostMicrophoneGain 不可用:', e?.message);
+        }
+      }
 
       // 3. 创建录音，启用 metering
       const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
@@ -538,8 +610,9 @@ export default function AIConversationScreen() {
       { role: 'assistant', content: aiReply }
     );
 
-    // 8. 显示 AI 回复
+    // 8. 显示 AI 回复（逐字呈现）
     setAiText(aiReply);
+    setDisplayedText(''); // 重置逐字文本，从空开始
     setStatusAndRef('speaking');
     setMessages((prev) => [...prev, { role: 'ai', text: aiReply }]);
     resetInactivityTimer();
@@ -548,25 +621,40 @@ export default function AIConversationScreen() {
     // vadLockedRef.current 已经为 true，保持锁定
 
     // 10. 使用全局 TTS 播放 AI 回复，onDone 回调自动重启录音
-    globalSpeak(aiReply, () => {
-      // onDone 回调：TTS 播放完毕
-      if (!isMountedRef.current) return;
-      // 【防竞态】如果通话已结束，不再重启录音
-      if (callEndedRef.current) {
-        console.log('[AIConversation] ⛔ 通话已结束，TTS onDone 不重启录音');
-        return;
+    // 同时传入 onGlobalCharProgress 回调，实现逐字呈现
+    globalSpeak(
+      aiReply,
+      () => {
+        // onDone 回调：TTS 播放完毕
+        if (!isMountedRef.current) return;
+        // 【防竞态】如果通话已结束，不再重启录音
+        if (callEndedRef.current) {
+          console.log('[AIConversation] ⛔ 通话已结束，TTS onDone 不重启录音');
+          return;
+        }
+
+        console.log('[AIConversation] ✅ TTS 播放完毕，重启录音');
+
+        // TTS 完成时，确保显示完整文本
+        setDisplayedText(aiReply);
+
+        // 解锁 VAD（防回音状态锁解除）
+        vadLockedRef.current = false;
+        setStatusAndRef('listening');
+
+        // 重新激活麦克风和 VAD 监听
+        startRecording();
+        resetInactivityTimer();
+      },
+      undefined,
+      (charIndex: number) => {
+        // onGlobalCharProgress：根据 TTS 朗读进度更新逐字文本
+        if (!isMountedRef.current) return;
+        if (callEndedRef.current) return;
+        // 从 aiText 中截取到当前字符位置
+        setDisplayedText(aiReply.substring(0, charIndex));
       }
-
-      console.log('[AIConversation] ✅ TTS 播放完毕，重启录音');
-
-      // 解锁 VAD（防回音状态锁解除）
-      vadLockedRef.current = false;
-      setStatusAndRef('listening');
-
-      // 重新激活麦克风和 VAD 监听
-      startRecording();
-      resetInactivityTimer();
-    });
+    );
   }, [stopRecording, resetInactivityTimer, startRecording, globalSpeak]);
 
   // ====== 重置静音计时器 ======
@@ -602,6 +690,7 @@ export default function AIConversationScreen() {
     // 随机选开场白
     const opening = getRandomOpening();
     setAiText(opening);
+    setDisplayedText(''); // 重置逐字文本，从空开始
     setStatusAndRef('speaking');
     setMessages([{ role: 'ai', text: opening }]);
 
@@ -617,88 +706,110 @@ export default function AIConversationScreen() {
     vadLockedRef.current = true;
 
     // 使用全局 TTS 播放开场白，onDone 回调自动切换到 listening
-    globalSpeak(opening, () => {
-      if (!isMountedRef.current) return;
-      // 【防竞态】如果通话已结束（用户在开场白播放期间点击了结束），不再启动录音
-      if (callEndedRef.current) {
-        console.log('[AIConversation] ⛔ 通话已结束，开场白 onDone 不启动录音');
-        return;
+    // 同时传入 onGlobalCharProgress 回调，实现逐字呈现
+    globalSpeak(
+      opening,
+      () => {
+        if (!isMountedRef.current) return;
+        // 【防竞态】如果通话已结束（用户在开场白播放期间点击了结束），不再启动录音
+        if (callEndedRef.current) {
+          console.log('[AIConversation] ⛔ 通话已结束，开场白 onDone 不启动录音');
+          return;
+        }
+
+        console.log('[AIConversation] ✅ 开场白播放完毕，切换到聆听模式');
+
+        // TTS 完成时，确保显示完整文本
+        setDisplayedText(opening);
+
+        // 解锁 VAD（防回音状态锁解除）
+        vadLockedRef.current = false;
+        setStatusAndRef('listening');
+
+        // 启动录音
+        startRecording();
+        resetInactivityTimer();
+      },
+      undefined,
+      (charIndex: number) => {
+        // onGlobalCharProgress：根据 TTS 朗读进度更新逐字文本
+        if (!isMountedRef.current) return;
+        if (callEndedRef.current) return;
+        setDisplayedText(opening.substring(0, charIndex));
       }
-
-      console.log('[AIConversation] ✅ 开场白播放完毕，切换到聆听模式');
-
-      // 解锁 VAD（防回音状态锁解除）
-      vadLockedRef.current = false;
-      setStatusAndRef('listening');
-
-      // 启动录音
-      startRecording();
-      resetInactivityTimer();
-    });
+    );
   }, [resetInactivityTimer, startRecording, globalSpeak]);
 
   // ====== 结束通话 ======
-  const endCall = useCallback(async () => {
-    // 立即标记通话已结束，阻止 onSilenceTimeout 等异步流程继续执行
+  const endCall = useCallback(() => {
+    // 1. 立即标记通话已结束，阻止 onSilenceTimeout 等异步流程继续执行
     callEndedRef.current = true;
 
-    // 恢复全局语速，不影响其他模块
+    // 2. 立即恢复全局语速，不影响其他模块
     setAiConversationRate(null);
 
+    // 3. 立即停止所有计时器（同步操作）
     clearInactivityTimer();
-    cleanupRecording();
-    stopGlobalSpeech();
-
-    // 停止通话时长计数器
     if (callDurationTimerRef.current) {
       clearInterval(callDurationTimerRef.current);
       callDurationTimerRef.current = null;
     }
 
-    // 用 try/catch 包裹可能抛异常的异步操作，确保 UI 状态一定能重置
-    try {
-      // 计算通话时长并保存记录
-      const duration = callStartTimeRef.current > 0 ? Math.floor((Date.now() - callStartTimeRef.current) / 1000) : 0;
-      const userMessages = conversationHistoryRef.current
-        .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-      if (userMessages.length > 0) {
-        console.log('[AIConversation] 保存对话记录，共', userMessages.length, '条消息');
-        await saveOralSession(userMessages, duration);
+    // 4. 立即停止 TTS 播放（同步操作）
+    stopGlobalSpeech();
 
-        // 通话记录保存成功后，触发 AI 通话成就检测
-        const newlyUnlocked = await checkOralAchievements();
-        if (newlyUnlocked.length > 0 && isMountedRef.current) {
-          setNewlyUnlockedBadgeId(newlyUnlocked[0]);
-          setAchievementModalVisible(true);
-        }
-      }
-
-      // 检查是否满足 3 分钟打卡条件
-      const totalDuration = totalCallDurationRef.current;
-      if (totalDuration >= 180) {
-        console.log('[AIConversation] 通话时长', totalDuration, '秒，满足3分钟打卡条件');
-        await logStudyDate('practice');
-        if (isMountedRef.current) {
-          setToastMessage('🎉 恭喜！今日 AI 通话满 3 分钟，已成功点亮今日学习天数！');
-          setTimeout(() => {
-            if (isMountedRef.current) setToastMessage(null);
-          }, 4000);
-        }
-      }
-    } catch (err) {
-      console.error('[AIConversation] endCall 异步操作异常:', err);
-    }
-
-    // 无论异步操作是否成功，都重置 UI 状态
+    // 5. 立即重置 UI 状态（同步），让用户看到界面立刻回到 idle
     setIsActive(false);
     setStatusAndRef('idle');
     setAiText('');
+    setDisplayedText('');
     setAudioLevels(new Array(WAVEFORM_BARS).fill(0));
     vadLockedRef.current = false;
+
+    // 6. 保存当前对话历史的快照，然后清空（同步）
+    const snapshotHistory = [...conversationHistoryRef.current];
+    const snapshotStartTime = callStartTimeRef.current;
+    const snapshotDuration = totalCallDurationRef.current;
     conversationHistoryRef.current = [];
     callStartTimeRef.current = 0;
     totalCallDurationRef.current = 0;
+
+    // 7. 后台异步保存记录（不阻塞 UI）
+    (async () => {
+      try {
+        // 先清理录音（可能因录音已停止而抛出异常，由外层 try-catch 处理）
+        await cleanupRecording();
+        const duration = snapshotStartTime > 0 ? Math.floor((Date.now() - snapshotStartTime) / 1000) : 0;
+        const userMessages = snapshotHistory
+          .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
+          .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+        if (userMessages.length > 0) {
+          console.log('[AIConversation] 保存对话记录，共', userMessages.length, '条消息');
+          await saveOralSession(userMessages, duration);
+
+          // 通话记录保存成功后，触发 AI 通话成就检测
+          const newlyUnlocked = await checkOralAchievements();
+          if (newlyUnlocked.length > 0 && isMountedRef.current) {
+            setNewlyUnlockedBadgeId(newlyUnlocked[0]);
+            setAchievementModalVisible(true);
+          }
+        }
+
+        // 检查是否满足 3 分钟打卡条件
+        if (snapshotDuration >= 180) {
+          console.log('[AIConversation] 通话时长', snapshotDuration, '秒，满足3分钟打卡条件');
+          await logStudyDate('practice');
+          if (isMountedRef.current) {
+            setToastMessage('🎉 恭喜！今日 AI 通话满 3 分钟，已成功点亮今日学习天数！');
+            setTimeout(() => {
+              if (isMountedRef.current) setToastMessage(null);
+            }, 4000);
+          }
+        }
+      } catch (err) {
+        console.error('[AIConversation] endCall 异步保存异常:', err);
+      }
+    })();
   }, [cleanupRecording, stopGlobalSpeech]);
 
   // 同步 endCall 到 ref（供 resetInactivityTimer 使用）
@@ -734,18 +845,20 @@ export default function AIConversationScreen() {
 
       {/* ── 顶部栏 ── */}
       <View style={styles.topBar}>
-        <Text style={styles.topBarTitle}>AI 通话</Text>
+        <View style={styles.topBarRow}>
+          <Text style={styles.topBarTitle}>AI 通话</Text>
+          <TouchableOpacity
+            style={styles.historyButton}
+            onPress={() => router.push('/oral-history')}
+            activeOpacity={0.7}
+          >
+            <Feather name="clock" size={18} color="#A78BFA" />
+            <Text style={styles.historyButtonText}>历史对话</Text>
+          </TouchableOpacity>
+        </View>
         {isActive && (
           <Text style={styles.timerHint}>1分钟内无声音将自动挂断</Text>
         )}
-        <TouchableOpacity
-          style={styles.historyButton}
-          onPress={() => router.push('/oral-history')}
-          activeOpacity={0.7}
-        >
-          <Feather name="clock" size={18} color="#A78BFA" />
-          <Text style={styles.historyButtonText}>历史对话</Text>
-        </TouchableOpacity>
       </View>
 
       {/* ── 中心区域 ── */}
@@ -817,9 +930,13 @@ export default function AIConversationScreen() {
           </View>
         )}
 
-        {/* AI 当前文本（speaking 时显示） */}
+        {/* AI 当前文本（speaking 时显示，逐字呈现） */}
         {status === 'speaking' && aiText ? (
-          <Text style={styles.aiSpeechText}>{aiText}</Text>
+          <Text style={styles.aiSpeechText}>
+            {displayedText || ''}
+            {/* 闪烁的光标，表示正在朗读中 */}
+            <Text style={styles.cursor}>▌</Text>
+          </Text>
         ) : null}
       </View>
 
@@ -922,11 +1039,13 @@ const styles = StyleSheet.create({
 
   // ── 顶部栏 ──
   topBar: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  topBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
   },
   topBarTitle: {
     fontSize: 18,
@@ -936,6 +1055,8 @@ const styles = StyleSheet.create({
   timerHint: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.4)',
+    marginTop: 4,
+    marginLeft: 2,
   },
 
   // ── 中心区域 ──
@@ -984,6 +1105,11 @@ const styles = StyleSheet.create({
   thinkingText: {
     fontSize: 13,
     color: '#FBBF24',
+  },
+  cursor: {
+    fontSize: 15,
+    color: '#A78BFA',
+    opacity: 0.8,
   },
   aiSpeechText: {
     fontSize: 15,

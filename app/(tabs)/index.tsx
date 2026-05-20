@@ -178,6 +178,23 @@ export default function HomeScreen() {
     }, 300);
   }, [showNextFromQueue]);
 
+  // 加载统计数据（词汇量 + 学习天数 + 勋章数）- 后台静默刷新
+  const loadStats = useCallback(async (uid: string) => {
+    try {
+      const [vocabResult, daysResult, badgeResult] = await Promise.all([
+        countMasteredWords(uid),
+        countStudyDays(uid),
+        countUnlockedBadges(uid),
+      ]);
+      // 直接更新状态，不显示加载提示
+      setVocabCount(vocabResult);
+      setStudyDays(daysResult);
+      setBadgeCount(badgeResult);
+    } catch (err) {
+      console.warn('[HomeScreen] 加载统计数据失败:', err);
+    }
+  }, []);
+
   // 加载用户资料（头像 + 昵称）
   const loadUserProfile = useCallback(async () => {
     try {
@@ -196,38 +213,19 @@ export default function HomeScreen() {
         setAvatarType(profile.avatar_type || 0);
         setNickname(profile.nickname || '英语学习者');
       }
+
+      // 在 loadUserProfile 内部直接加载统计数据，避免闭包中 userId 未更新的问题
+      loadStats(user.id);
     } catch (err) {
       console.warn('[HomeScreen] 加载用户资料失败:', err);
     }
-  }, []);
-
-  // 加载统计数据（词汇量 + 学习天数 + 勋章数）- 后台静默刷新
-  const loadStats = useCallback(async (uid: string) => {
-    try {
-      const [vocabResult, daysResult, badgeResult] = await Promise.all([
-        countMasteredWords(uid),
-        countStudyDays(uid),
-        countUnlockedBadges(uid),
-      ]);
-      // 直接更新状态，不显示加载提示
-      setVocabCount(vocabResult);
-      setStudyDays(daysResult);
-      setBadgeCount(badgeResult);
-    } catch (err) {
-      console.warn('[HomeScreen] 加载统计数据失败:', err);
-    }
-  }, []);
+  }, [loadStats]);
 
   // 每次页面获得焦点时自动刷新
   useFocusEffect(
     useCallback(() => {
-      loadUserProfile().then(() => {
-        // 等 loadUserProfile 设置好 userId 后再加载统计数据
-        if (userId) {
-          loadStats(userId);
-        }
-      });
-    }, [loadUserProfile, loadStats, userId]),
+      loadUserProfile();
+    }, [loadUserProfile]),
   );
 
   return (

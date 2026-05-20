@@ -998,49 +998,73 @@ class EdgeTtsService {
 
     const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
-    // 创建新的 AbortController，用于在 stop() 时取消请求
-    this.abortController = new AbortController();
+    // 最大重试次数
+    const MAX_RETRIES = 2;
+    let lastError: Error | null = null;
 
-    const response = await fetch(TTS_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': supabaseAnonKey,
-        'Authorization': `Bearer ${supabaseAnonKey}`,
-      },
-      body: JSON.stringify({
-        text,
-        voice,
-        rate,
-        pitch,
-        ssml,
-        language,
-      }),
-      signal: this.abortController.signal,
-    });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        console.log(`[EdgeTtsService] 🔄 重试第 ${attempt}/${MAX_RETRIES} 次...`);
+        // 指数退避：1s, 2s
+        await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+      }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`TTS API failed: ${response.status} - ${errorText}`);
+      try {
+        // 创建新的 AbortController，用于在 stop() 时取消请求
+        this.abortController = new AbortController();
+
+        const response = await fetch(TTS_API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseAnonKey,
+            'Authorization': `Bearer ${supabaseAnonKey}`,
+          },
+          body: JSON.stringify({
+            text,
+            voice,
+            rate,
+            pitch,
+            ssml,
+            language,
+          }),
+          signal: this.abortController.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`TTS API failed: ${response.status} - ${errorText}`);
+        }
+
+        // 解析 JSON 响应
+        const data = await response.json();
+        console.log(`[EdgeTtsService] 接收到响应:`, { success: data.success, audioBase64Length: data.audioBase64?.length });
+
+        if (!data.success || !data.audioBase64) {
+          throw new Error('TTS API returned invalid response');
+        }
+
+        // 直接使用后端返回的 base64 字符串，添加 data URI 前缀
+        const audioUri = 'data:audio/mpeg;base64,' + data.audioBase64;
+        console.log(`[EdgeTtsService] 音频 URI 准备完成，长度: ${audioUri.length}`);
+
+        // 存入缓存
+        this.audioCache.set(cacheKey, audioUri);
+        console.log(`[EdgeTtsService] 音频已缓存，当前缓存数: ${this.audioCache.size}`);
+
+        return audioUri;
+      } catch (error: any) {
+        // 如果是 AbortError（stop() 取消了请求），直接抛出，不重试
+        if (error?.name === 'AbortError') {
+          throw error;
+        }
+        lastError = error;
+        console.warn(`[EdgeTtsService] ⚠️ 第 ${attempt + 1} 次合成失败:`, error?.message);
+      }
     }
 
-    // 解析 JSON 响应
-    const data = await response.json();
-    console.log(`[EdgeTtsService] 接收到响应:`, { success: data.success, audioBase64Length: data.audioBase64?.length });
-
-    if (!data.success || !data.audioBase64) {
-      throw new Error('TTS API returned invalid response');
-    }
-
-    // 直接使用后端返回的 base64 字符串，添加 data URI 前缀
-    const audioUri = 'data:audio/mpeg;base64,' + data.audioBase64;
-    console.log(`[EdgeTtsService] 音频 URI 准备完成，长度: ${audioUri.length}`);
-
-    // 存入缓存
-    this.audioCache.set(cacheKey, audioUri);
-    console.log(`[EdgeTtsService] 音频已缓存，当前缓存数: ${this.audioCache.size}`);
-
-    return audioUri;
+    // 所有重试都失败
+    throw lastError || new Error('TTS synthesis failed after retries');
   }
 
   async speak(options: TtsOptions): Promise<() => void> {

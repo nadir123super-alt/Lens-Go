@@ -20,6 +20,7 @@
  *   - AI 结果展示区域
  *   - AI 扩展查询选项
  */
+import { useGlobalSpeech } from '@/hooks/useGlobalSpeech';
 import { DictResult, exactMatch, fuzzySearch } from '@/services/dictionaryService';
 import edgeTtsService from '@/services/edgeTtsService';
 import { Feather } from '@expo/vector-icons';
@@ -27,14 +28,14 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -44,6 +45,7 @@ export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
+  const { stop: stopGlobalSpeech } = useGlobalSpeech();
 
   const [query, setQuery] = useState('');
   const [state, setState] = useState<SearchState>('idle');
@@ -64,12 +66,13 @@ export default function SearchScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  // 清理节流
+  // 清理节流 + 离开页面时停止 TTS 播放
   useEffect(() => {
     return () => {
       if (throttleRef.current) clearTimeout(throttleRef.current);
+      stopGlobalSpeech();
     };
-  }, []);
+  }, [stopGlobalSpeech]);
 
   // ── 执行模糊搜索（节流 300ms） ──
   const doFuzzySearch = useCallback((text: string) => {

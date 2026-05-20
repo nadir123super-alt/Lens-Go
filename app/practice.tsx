@@ -27,43 +27,43 @@
 import AchievementUnlockModal from '@/components/AchievementUnlockModal';
 import { useGlobalSpeech } from '@/hooks/useGlobalSpeech';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { consumePreloadedPractice } from '@/services/dataPreloader';
 import { usePracticeContext } from '@/services/practiceContext';
 import {
-    consumePendingSession,
-    evaluateSpeechWithRetry,
-    fetchNextPracticeSet,
-    fillSkippedScores,
-    getCurrentSentence,
-    getCurrentWord,
-    getScoreFeedback,
-    isAllPerfect,
-    PracticeSession,
-    recordStageScore,
-    savePendingScores,
-    skipCard,
-    TaskStage
+  consumePendingSession,
+  evaluateSpeechWithRetry,
+  fetchNextPracticeSet,
+  fillSkippedScores,
+  getCurrentSentence,
+  getCurrentWord,
+  getScoreFeedback,
+  isAllPerfect,
+  PracticeSession,
+  recordStageScore,
+  savePendingScores,
+  skipCard,
+  TaskStage
 } from '@/services/practiceService';
 import {
-    forceStopRecording,
-    requestAudioPermission,
-    setAutoStopCallback,
-    setVolumeMeteringCallback,
-    startRecording,
-    stopRecordingWithVolume,
-    VOLUME_THRESHOLD_DB
+  forceStopRecording,
+  requestAudioPermission,
+  setAutoStopCallback,
+  setVolumeMeteringCallback,
+  startRecording,
+  stopRecordingWithVolume,
+  VOLUME_THRESHOLD_DB
 } from '@/services/recordingService';
 
 import edgeTtsService from '@/services/edgeTtsService';
@@ -292,6 +292,19 @@ export default function PracticeScreen() {
       console.log('[practice] 🧹 组件卸载，已清理录音 + TTS 资源');
     };
   }, []);
+
+  // ★ 页面失去焦点时（切换到其他 Tab）立即停止所有音频播放
+  useFocusEffect(
+    useCallback(() => {
+      // 页面获得焦点时不需要做任何事
+      return () => {
+        // 页面失去焦点时（blur）停止音频
+        console.log('[practice] 🚫 页面失去焦点，停止所有音频播放');
+        stopGlobalSpeech();
+        stopTTS();
+      };
+    }, [stopGlobalSpeech])
+  );
 
   // ===== 脉冲动画（评分中） =====
   useEffect(() => {
