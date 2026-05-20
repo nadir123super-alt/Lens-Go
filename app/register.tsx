@@ -2,24 +2,29 @@
  * RegisterScreen — 注册页面
  *
  * 流程：
- * 1. 用户输入邮箱 → 点击"获取验证码" → signInWithOtp 发送验证码
- * 2. 用户输入验证码 + 设置密码 → 点击"注册" → signUp 创建账号
- * 3. 注册成功 → 自动登录 → 跳转首页
+ * 1. 用户输入邮箱 → 点击"获取验证码" → signInWithOtp 发送验证码（shouldCreateUser=true 自动创建用户）
+ * 2. 用户输入验证码 + 设置密码 → 点击"注册" → verifyOtp 验证验证码
+ * 3. 验证码正确 → 用户已自动登录（有 session）→ updateUser 设置密码
+ * 4. 注册成功 → 跳转首页
+ *
+ * ★ 注意：signInWithOtp({ shouldCreateUser: true }) 会在发送验证码时自动创建用户记录。
+ * 因此后续不能再调用 signUp()（会报 "User already registered"），
+ * 而是直接 verifyOtp → updateUser({ password }) 设置密码。
  */
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -92,19 +97,10 @@ export default function RegisterScreen() {
     try {
       const trimmedEmail = email.trim().toLowerCase();
 
-      // 先检查邮箱是否已注册
-      const { data: existsData, error: existsError } = await supabase.rpc('check_email_exists', {
-        email_to_check: trimmedEmail,
-      });
-
-      if (!existsError && existsData === true) {
-        Alert.alert('该账号已存在', '该邮箱已注册，请直接登录', [
-          { text: '前往登录', onPress: () => router.replace('/login') },
-          { text: '取消', style: 'cancel' },
-        ]);
-        return;
-      }
-
+      // ★ 不在这里检查邮箱是否已注册
+      // signInWithOtp({ shouldCreateUser: true }) 会在发送验证码时自动创建用户记录
+      // 但此时用户还没有设置密码，不算"已完成注册"
+      // 真正的注册完成检查在 handleSignup 的 verifyOtp 之后进行
       const { error } = await supabase.auth.signInWithOtp({
         email: trimmedEmail,
         options: {
@@ -168,20 +164,9 @@ export default function RegisterScreen() {
     try {
       const trimmedEmail = email.trim().toLowerCase();
 
-      // 先检查邮箱是否已注册（双重保险，防止 handleSendCode 中的检查被跳过）
-      const { data: existsData, error: existsError } = await supabase.rpc('check_email_exists', {
-        email_to_check: trimmedEmail,
-      });
-
-      if (!existsError && existsData === true) {
-        Alert.alert('该账号已存在', '该邮箱已注册，请直接登录', [
-          { text: '前往登录', onPress: () => router.replace('/login') },
-          { text: '取消', style: 'cancel' },
-        ]);
-        return;
-      }
-
       // 验证验证码
+      // ★ signInWithOtp({ shouldCreateUser: true }) 已在 handleSendCode 中创建了用户
+      // 所以这里只需 verifyOtp 验证验证码，验证成功后用户会自动登录（有 session）
       const { error: verifyError } = await supabase.auth.verifyOtp({
         email: trimmedEmail,
         token: code.trim(),
@@ -197,29 +182,17 @@ export default function RegisterScreen() {
         return;
       }
 
-      // 验证码正确后，用邮箱 + 密码注册
-      const { data, error } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password,
-        options: {
-          // 关闭邮箱确认后，data.user?.email_confirmed_at 会自动填充
-          // 这里不传 emailRedirectTo，避免触发邮件
-        },
-      });
+      // 验证码正确 → 用户已自动登录（有 session）
+      // ★ 检查用户是否已有密码（即之前已完成注册）
+      // signInWithOtp 创建的用户没有密码，只有 verifyOtp + updateUser 后才会有密码
+      const { data: hasPassword, error: checkPwdError } = await supabase.rpc(
+        'check_user_has_password',
+        { email_to_check: trimmedEmail },
+      );
 
-      if (error) {
-        if (error.message === 'User already registered') {
-          Alert.alert('该账号已存在', '该邮箱已注册，请直接登录', [
-            { text: '前往登录', onPress: () => router.replace('/login') },
-            { text: '取消', style: 'cancel' },
-          ]);
-          return;
-        }
-        Alert.alert('注册失败', translateAuthError(error.message));
-        return;
-      }
-
-      if (data?.user?.identities?.length === 0) {
+      if (!checkPwdError && hasPassword === true) {
+        // 用户已有密码，说明已完成注册，引导去登录
+        console.log('[Register] 用户已有密码，引导登录');
         Alert.alert('该账号已存在', '该邮箱已注册，请直接登录', [
           { text: '前往登录', onPress: () => router.replace('/login') },
           { text: '取消', style: 'cancel' },
@@ -227,9 +200,21 @@ export default function RegisterScreen() {
         return;
       }
 
+      // 用户没有密码，设置密码完成注册
+      console.log('[Register] 验证码正确，设置密码');
+      const { error: updateError } = await supabase.auth.updateUser({
+        password,
+      });
+
+      if (updateError) {
+        console.error('[Register] 设置密码失败:', updateError.message);
+        Alert.alert('设置密码失败', translateAuthError(updateError.message));
+        return;
+      }
+
       console.log('[Register] 注册成功，自动登录');
 
-      // 注册成功后，Supabase 会自动创建 session（当关闭邮箱确认时）
+      // 注册成功，跳转首页
       router.replace('/(tabs)');
       refreshAuthState();
     } catch (error) {
