@@ -59,6 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const initializedRef = useRef(false);
   // 是否正在初始化（onAuthStateChange 首次回调前为 true）
   const [isInitializing, setIsInitializing] = useState(true);
+  // 防重入锁：防止 resolveAuthState 被并发调用（如 getUser 触发 TOKEN_REFRESHED 事件导致递归）
+  const resolvingRef = useRef(false);
 
   /**
    * 查询 profiles 表确认用户身份
@@ -101,21 +103,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * 核心：检测认证状态
    *
    * 策略：预设乐观 + 后台静默校验
-   *   1. 立即调用 getSession()（无强制延迟）
-   *   2. 如果本地有有效 session → 立即设为 authenticated，渲染主页面
+   *   1. 调用 getUser() 获取当前用户（会自动刷新过期的 access token）
+   *   2. 如果用户有效 → 立即设为 authenticated，渲染主页面
    *   3. 后台异步校验 profile 是否存在
    *     3a. profile 存在 → 保持 authenticated，更新 userId/userEmail
    *     3b. profile 不存在 → 静默跳转回登录页（用户无感知转圈）
    *     3c. 网络异常 → 保持 authenticated，不阻塞用户（下次打开再校验）
-   *   4. 如果本地无 session → unauthenticated，显示登录页
+   *   4. 如果用户无效（无 session 或 refresh token 也过期）→ unauthenticated，显示登录页
+   *
+   * ★ 为什么用 getUser() 而不是 getSession()？
+   * getSession() 只从本地存储读取 session，不会自动刷新过期的 access token。
+   * 当应用长时间不运行后，access token 过期，getSession() 返回的 session 虽然存在
+   * 但已不可用，导致后续 API 调用失败。
+   * getUser() 内部会检查 access token 是否过期，如果过期会自动用 refresh token 刷新，
+   * 刷新成功则返回新的用户信息，刷新失败（refresh token 也过期）则返回 null。
    */
   const resolveAuthState = async () => {
+    // 防重入锁：如果已经有 resolveAuthState 正在执行，跳过本次调用
+    // 防止 getUser() 触发 TOKEN_REFRESHED 事件 → onAuthStateChange → resolveAuthState 递归
+    if (resolvingRef.current) {
+      console.log('[AuthContext] resolveAuthState 已在执行中，跳过重入调用');
+      return;
+    }
+    resolvingRef.current = true;
     try {
-      // Step 1: 快速获取 session（不强制延迟，不设 loading）
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Step 1: 获取当前用户（自动处理 token 刷新）
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-      if (sessionError) {
-        console.error('[AuthContext] getSession 失败:', sessionError);
+      if (userError) {
+        // getUser 失败：可能是网络错误或 refresh token 过期
+        console.warn('[AuthContext] getUser 失败:', userError.message);
+
+        // 尝试用 refreshSession 兜底（getUser 在某些版本可能不自动刷新）
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError || !refreshData?.session) {
+          console.log('[AuthContext] refreshSession 也失败 → unauthenticated');
+          setAuthState('unauthenticated');
+          setUserId(null);
+          setUserEmail(null);
+          initializedRef.current = true;
+          setIsInitializing(false);
+          return;
+        }
+
+        // refreshSession 成功，使用刷新后的 session
+        const refreshedUser = refreshData.session.user;
+        console.log('[AuthContext] refreshSession 成功, user.id =', refreshedUser.id);
+        setUserId(refreshedUser.id);
+        setUserEmail(refreshedUser.email || '');
+        setAuthState('authenticated');
+        initializedRef.current = true;
+        setIsInitializing(false);
+
+        // 后台异步校验 profile
+        const refreshProfileResult = await checkProfileExists(refreshedUser.id);
+        if (refreshProfileResult.error) {
+          console.warn('[AuthContext] refreshSession 后 profile 校验网络异常，保持登录状态:', refreshProfileResult.error);
+        } else if (!refreshProfileResult.exists) {
+          console.warn('[AuthContext] refreshSession 后 profile 不存在（可能刚注册），保持登录状态');
+        } else {
+          console.log('[AuthContext] refreshSession 后 profile 校验成功');
+        }
+        return;
+      }
+
+      if (!user) {
+        console.log('[AuthContext] 无用户 → unauthenticated');
         setAuthState('unauthenticated');
         setUserId(null);
         setUserEmail(null);
@@ -124,19 +177,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (!session) {
-        console.log('[AuthContext] 无 session → unauthenticated');
-        setAuthState('unauthenticated');
-        setUserId(null);
-        setUserEmail(null);
-        initializedRef.current = true;
-        setIsInitializing(false);
-        return;
-      }
-
-      const uid = session.user.id;
-      const email = session.user.email || '';
-      console.log('[AuthContext] 发现 session, user.id =', uid);
+      const uid = user.id;
+      const email = user.email || '';
+      console.log('[AuthContext] 用户有效, user.id =', uid);
 
       // 预设乐观：立即设为 authenticated，渲染主页面
       setUserId(uid);
@@ -146,7 +189,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsInitializing(false);
 
       // 后台异步校验 profile（不阻塞 UI）
-      console.log('[AuthContext] 后台异步校验 profile...');
       const profileResult = await checkProfileExists(uid);
 
       if (profileResult.error) {
@@ -207,7 +249,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthContext] 后台 profile 校验成功');
     } catch (err) {
       console.error('[AuthContext] resolveAuthState 异常:', err);
-      // 异常时不改变状态，保持当前页面
+      // 异常时确保初始化完成，显示登录页而不是黑屏
+      initializedRef.current = true;
+      setIsInitializing(false);
+      setAuthState('unauthenticated');
+    } finally {
+      resolvingRef.current = false;
     }
   };
 
