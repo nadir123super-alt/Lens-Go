@@ -29,7 +29,7 @@
         "android.permission.READ_CALENDAR",
         "android.permission.WRITE_CALENDAR"
       ],
-      "package": "com.anonymous.LensGo"
+      "package": "com.lensgo.app"
     },
     "web": {
       "output": "static",

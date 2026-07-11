@@ -1,15 +1,16 @@
 /**
  * RegisterScreen — 注册页面
  *
- * 流程：
- * 1. 用户输入邮箱 → 点击"获取验证码" → signInWithOtp 发送验证码（shouldCreateUser=true 自动创建用户）
- * 2. 用户输入验证码 + 设置密码 → 点击"注册" → verifyOtp 验证验证码
- * 3. 验证码正确 → 用户已自动登录（有 session）→ updateUser 设置密码
- * 4. 注册成功 → 跳转首页
+ * 支持：
+ * - 邮箱注册：输入邮箱 → 获取验证码（signInWithOtp）→ 验证验证码 → 设置密码
+ * - 手机号注册：输入手机号 → 获取短信验证码（Edge Function）→ 验证验证码 → 设置密码
  *
- * ★ 注意：signInWithOtp({ shouldCreateUser: true }) 会在发送验证码时自动创建用户记录。
+ * ★ 注意（邮箱）：signInWithOtp({ shouldCreateUser: true }) 会在发送验证码时自动创建用户记录。
  * 因此后续不能再调用 signUp()（会报 "User already registered"），
  * 而是直接 verifyOtp → updateUser({ password }) 设置密码。
+ *
+ * ★ 注意（手机号）：使用 phoneAuthService 的 sendPhoneCode / registerWithPhone，
+ * 通过 Supabase Edge Function 发送短信，验证码通过后创建用户。
  */
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -30,6 +31,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AppLogo from '../components/AppLogo';
 import { useAuth } from '../services/AuthContext';
+import { registerWithPhone, sendPhoneCode } from '../services/phoneAuthService';
 import { supabase } from '../services/supabaseClient';
 
 export default function RegisterScreen() {
@@ -37,7 +39,7 @@ export default function RegisterScreen() {
   const router = useRouter();
   const { refreshAuthState } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState(''); // 手机号或邮箱
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -68,9 +70,14 @@ export default function RegisterScreen() {
     }
   }, [countdown]);
 
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+  /** 判断输入是否为邮箱 */
+  const isEmail = (value: string): boolean => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  };
+
+  /** 判断输入是否为手机号 */
+  const isPhone = (value: string): boolean => {
+    return /^1[3-9]\d{9}$/.test(value);
   };
 
   const translateAuthError = (message: string): string => {
@@ -88,29 +95,50 @@ export default function RegisterScreen() {
 
   /** 发送验证码 */
   const handleSendCode = async () => {
-    if (!email.trim() || !validateEmail(email)) {
-      Alert.alert('提示', '请输入正确的邮箱格式');
+    const trimmed = account.trim();
+
+    if (!trimmed) {
+      Alert.alert('提示', '请输入手机号或邮箱');
+      return;
+    }
+
+    const isEmailInput = isEmail(trimmed);
+    const isPhoneInput = isPhone(trimmed);
+
+    if (!isEmailInput && !isPhoneInput) {
+      Alert.alert('提示', '请输入正确的手机号或邮箱格式');
       return;
     }
 
     setIsSendingCode(true);
     try {
-      const trimmedEmail = email.trim().toLowerCase();
+      if (isEmailInput) {
+        // === 邮箱验证码 ===
+        const trimmedEmail = trimmed.toLowerCase();
 
-      // ★ 不在这里检查邮箱是否已注册
-      // signInWithOtp({ shouldCreateUser: true }) 会在发送验证码时自动创建用户记录
-      // 但此时用户还没有设置密码，不算"已完成注册"
-      // 真正的注册完成检查在 handleSignup 的 verifyOtp 之后进行
-      const { error } = await supabase.auth.signInWithOtp({
-        email: trimmedEmail,
-        options: {
-          shouldCreateUser: true,
-        },
-      });
+        const { error } = await supabase.auth.signInWithOtp({
+          email: trimmedEmail,
+          options: {
+            shouldCreateUser: true,
+          },
+        });
 
-      if (error) {
-        Alert.alert('发送失败', translateAuthError(error.message));
-        return;
+        if (error) {
+          Alert.alert('发送失败', translateAuthError(error.message));
+          return;
+        }
+
+        Alert.alert('验证码已发送', `验证码已发送至 ${trimmedEmail}，请查收邮件（注意检查垃圾邮件箱）`);
+      } else {
+        // === 手机号短信验证码 ===
+        const result = await sendPhoneCode(trimmed);
+
+        if (!result.success) {
+          Alert.alert('发送失败', result.message);
+          return;
+        }
+
+        Alert.alert('验证码已发送', `短信验证码已发送至 ${trimmed}，请注意查收`);
       }
 
       // 发送成功
@@ -132,8 +160,6 @@ export default function RegisterScreen() {
           timerRef.current = null;
         }
       }, 1000);
-
-      Alert.alert('验证码已发送', `验证码已发送至 ${trimmedEmail}，请查收邮件（注意检查垃圾邮件箱）`);
     } catch (error) {
       Alert.alert('发送失败', '网络连接异常，请稍后重试');
     } finally {
@@ -143,10 +169,21 @@ export default function RegisterScreen() {
 
   /** 注册 */
   const handleSignup = async () => {
-    if (!email.trim() || !validateEmail(email)) {
-      Alert.alert('提示', '请输入正确的邮箱格式');
+    const trimmed = account.trim();
+
+    if (!trimmed) {
+      Alert.alert('提示', '请输入手机号或邮箱');
       return;
     }
+
+    const isEmailInput = isEmail(trimmed);
+    const isPhoneInput = isPhone(trimmed);
+
+    if (!isEmailInput && !isPhoneInput) {
+      Alert.alert('提示', '请输入正确的手机号或邮箱格式');
+      return;
+    }
+
     if (!code.trim()) {
       Alert.alert('提示', '请输入验证码');
       return;
@@ -162,57 +199,67 @@ export default function RegisterScreen() {
 
     setIsSubmitting(true);
     try {
-      const trimmedEmail = email.trim().toLowerCase();
+      if (isEmailInput) {
+        // === 邮箱注册流程 ===
+        const trimmedEmail = trimmed.toLowerCase();
 
-      // 验证验证码
-      // ★ signInWithOtp({ shouldCreateUser: true }) 已在 handleSendCode 中创建了用户
-      // 所以这里只需 verifyOtp 验证验证码，验证成功后用户会自动登录（有 session）
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        email: trimmedEmail,
-        token: code.trim(),
-        type: 'email',
-      });
+        // 验证验证码
+        const { error: verifyError } = await supabase.auth.verifyOtp({
+          email: trimmedEmail,
+          token: code.trim(),
+          type: 'email',
+        });
 
-      if (verifyError) {
-        if (verifyError.message === 'Token has expired or is invalid') {
-          Alert.alert('验证码无效', '验证码已过期或错误，请重新获取');
-        } else {
-          Alert.alert('验证失败', translateAuthError(verifyError.message));
+        if (verifyError) {
+          if (verifyError.message === 'Token has expired or is invalid') {
+            Alert.alert('验证码无效', '验证码已过期或错误，请重新获取');
+          } else {
+            Alert.alert('验证失败', translateAuthError(verifyError.message));
+          }
+          return;
         }
-        return;
+
+        // 验证码正确 → 用户已自动登录（有 session）
+        // 检查用户是否已有密码（即之前已完成注册）
+        const { data: hasPassword, error: checkPwdError } = await supabase.rpc(
+          'check_user_has_password',
+          { email_to_check: trimmedEmail },
+        );
+
+        if (!checkPwdError && hasPassword === true) {
+          // 用户已有密码，说明已完成注册，引导去登录
+          console.log('[Register] 用户已有密码，引导登录');
+          Alert.alert('该账号已存在', '该邮箱已注册，请直接登录', [
+            { text: '前往登录', onPress: () => router.replace('/login') },
+            { text: '取消', style: 'cancel' },
+          ]);
+          return;
+        }
+
+        // 用户没有密码，设置密码完成注册
+        console.log('[Register] 验证码正确，设置密码');
+        const { error: updateError } = await supabase.auth.updateUser({
+          password,
+        });
+
+        if (updateError) {
+          console.error('[Register] 设置密码失败:', updateError.message);
+          Alert.alert('设置密码失败', translateAuthError(updateError.message));
+          return;
+        }
+
+        console.log('[Register] 注册成功，自动登录');
+      } else {
+        // === 手机号注册流程 ===
+        const result = await registerWithPhone(trimmed, code.trim(), password);
+
+        if (!result.success) {
+          Alert.alert('注册失败', result.message);
+          return;
+        }
+
+        console.log('[Register] 手机号注册成功');
       }
-
-      // 验证码正确 → 用户已自动登录（有 session）
-      // ★ 检查用户是否已有密码（即之前已完成注册）
-      // signInWithOtp 创建的用户没有密码，只有 verifyOtp + updateUser 后才会有密码
-      const { data: hasPassword, error: checkPwdError } = await supabase.rpc(
-        'check_user_has_password',
-        { email_to_check: trimmedEmail },
-      );
-
-      if (!checkPwdError && hasPassword === true) {
-        // 用户已有密码，说明已完成注册，引导去登录
-        console.log('[Register] 用户已有密码，引导登录');
-        Alert.alert('该账号已存在', '该邮箱已注册，请直接登录', [
-          { text: '前往登录', onPress: () => router.replace('/login') },
-          { text: '取消', style: 'cancel' },
-        ]);
-        return;
-      }
-
-      // 用户没有密码，设置密码完成注册
-      console.log('[Register] 验证码正确，设置密码');
-      const { error: updateError } = await supabase.auth.updateUser({
-        password,
-      });
-
-      if (updateError) {
-        console.error('[Register] 设置密码失败:', updateError.message);
-        Alert.alert('设置密码失败', translateAuthError(updateError.message));
-        return;
-      }
-
-      console.log('[Register] 注册成功，自动登录');
 
       // 注册成功，跳转首页
       router.replace('/(tabs)');
@@ -239,18 +286,18 @@ export default function RegisterScreen() {
 
       {/* 表单区域 */}
       <View style={s.form}>
-        {/* 邮箱输入 */}
+        {/* 邮箱/手机号输入 */}
         <View style={s.inputContainer}>
-          <Text style={s.label}>邮箱</Text>
+          <Text style={s.label}>邮箱/手机号</Text>
           <View style={s.inputWrapper}>
             <Feather name="mail" size={18} color="#666" />
             <TextInput
               style={s.input}
-              placeholder="请输入邮箱"
+              placeholder="请输入邮箱或手机号"
               placeholderTextColor="#666666"
-              value={email}
+              value={account}
               onChangeText={(text) => {
-                setEmail(text);
+                setAccount(text);
                 if (codeSent) {
                   setCodeSent(false);
                   setCode('');
@@ -258,7 +305,7 @@ export default function RegisterScreen() {
                   setCountdown(0);
                 }
               }}
-              keyboardType="email-address"
+              keyboardType={isPhone(account) ? 'phone-pad' : 'email-address'}
               autoCapitalize="none"
             />
           </View>

@@ -2,8 +2,12 @@
  * LoginScreen — 登录页面（密码登录）
  *
  * 流程：
- * 1. 用户输入邮箱 + 密码 → 点击"登录" → signInWithPassword 验证
+ * 1. 用户输入手机号/邮箱 + 密码 → 点击"登录" → signInWithPassword 验证
  * 2. 验证成功 → 自动创建 session → 跳转首页
+ *
+ * 支持：
+ * - 邮箱登录：直接使用 signInWithPassword
+ * - 手机号登录：自动查找对应的邮箱（phone_xxx@lensgo.app），再用邮箱+密码登录
  */
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -31,7 +35,7 @@ export default function LoginScreen() {
   const router = useRouter();
   const { refreshAuthState } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState(''); // 手机号或邮箱
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,16 +49,21 @@ export default function LoginScreen() {
     return () => subscription?.unsubscribe();
   }, []);
 
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+  /** 判断输入是否为邮箱 */
+  const isEmail = (value: string): boolean => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  };
+
+  /** 判断输入是否为手机号 */
+  const isPhone = (value: string): boolean => {
+    return /^1[3-9]\d{9}$/.test(value);
   };
 
   const translateAuthError = (message: string): string => {
     const errorMap: Record<string, string> = {
-      'Invalid login credentials': '邮箱或密码错误，请重新输入',
+      'Invalid login credentials': '账号或密码错误，请重新输入',
       'Email not confirmed': '邮箱尚未验证，请先查收验证邮件',
-      'User already registered': '该邮箱已注册，请直接登录',
+      'User already registered': '该账号已注册，请直接登录',
       'Invalid email': '邮箱格式不正确',
       'Password should be at least 8 characters': '密码长度至少为 8 位',
       'Signup requires a valid password': '请设置有效的密码（至少8位）',
@@ -63,14 +72,37 @@ export default function LoginScreen() {
     return errorMap[message] || message;
   };
 
+  /** 根据手机号查找对应的邮箱（phone_xxx@lensgo.app） */
+  const findEmailByPhone = async (phone: string): Promise<string | null> => {
+    try {
+      // 先查 profiles 表
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('phone', phone)
+        .maybeSingle();
+
+      if (error || !profile) {
+        return null;
+      }
+
+      // 手机号注册的用户，邮箱格式为 phone_{phone}@lensgo.app
+      return `phone_${phone}@lensgo.app`;
+    } catch {
+      return null;
+    }
+  };
+
   const handleLogin = async () => {
+    const trimmed = account.trim();
+
     // 1. 输入验证
-    if (!email.trim()) {
-      Alert.alert('提示', '请输入邮箱');
+    if (!trimmed) {
+      Alert.alert('提示', '请输入手机号或邮箱');
       return;
     }
-    if (!validateEmail(email)) {
-      Alert.alert('提示', '邮箱格式不正确，请重新输入');
+    if (!isEmail(trimmed) && !isPhone(trimmed)) {
+      Alert.alert('提示', '请输入正确的手机号或邮箱格式');
       return;
     }
     if (!password) {
@@ -84,47 +116,69 @@ export default function LoginScreen() {
 
     setIsSubmitting(true);
     try {
-      const trimmedEmail = email.trim().toLowerCase();
+      // 2. 确定用于登录的邮箱
+      let loginEmail: string;
+      let isPhoneLogin = false;
 
-      // 2. 先检查账号是否存在（通过 RPC 函数查询 auth.users）
-      console.log('[Login] 检查账号是否存在:', trimmedEmail);
+      if (isPhone(trimmed)) {
+        // 输入的是手机号 → 查找对应的邮箱
+        isPhoneLogin = true;
+        const foundEmail = await findEmailByPhone(trimmed);
+        if (!foundEmail) {
+          setPassword('');
+          Alert.alert(
+            '账号不存在',
+            '该手机号尚未注册，请先注册账号。',
+            [
+              { text: '重新输入', style: 'cancel' },
+              { text: '去注册', onPress: () => (router as any).push('/register') },
+            ],
+          );
+          return;
+        }
+        loginEmail = foundEmail;
+      } else {
+        // 输入的是邮箱
+        loginEmail = trimmed.toLowerCase();
+      }
+
+      // 3. 检查账号是否存在
+      console.log('[Login] 检查账号是否存在:', loginEmail);
       const { data: emailExists, error: checkError } = await supabase.rpc(
         'check_email_exists',
-        { email_to_check: trimmedEmail },
+        { email_to_check: loginEmail },
       );
 
       if (checkError) {
-        // RPC 调用失败（可能函数尚未创建），回退到直接登录
         console.warn('[Login] check_email_exists RPC 调用失败，回退到直接登录:', checkError.message);
       }
 
-      // 3. 如果 RPC 返回 false（账号不存在），提示用户去注册
+      // 4. 如果 RPC 返回 false（账号不存在），提示用户去注册
       if (emailExists === false) {
-        console.log('[Login] 账号不存在:', trimmedEmail);
+        console.log('[Login] 账号不存在:', loginEmail);
         setPassword('');
         Alert.alert(
           '账号不存在',
-          '该邮箱尚未注册，请先注册账号。',
+          isPhoneLogin ? '该手机号尚未注册，请先注册账号。' : '该邮箱尚未注册，请先注册账号。',
           [
             { text: '重新输入', style: 'cancel' },
-            { text: '去注册', onPress: () => router.push('/register') },
+            { text: '去注册', onPress: () => (router as any).push('/register') },
           ],
         );
         return;
       }
 
-      // 4. 账号存在，验证密码
+      // 5. 账号存在，验证密码
       console.log('[Login] 账号存在，验证密码');
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
+        email: loginEmail,
         password,
       });
 
       if (error) {
         if (error.message === 'Invalid login credentials') {
-          // 此时已确认账号存在，所以一定是密码错误
           setPassword('');
-          Alert.alert('登录失败', '密码或账号错误，请重新输入');
+          Alert.alert('登录失败', '账号或密码错误，请重新输入');
         } else if (error.message === 'Email not confirmed') {
           Alert.alert('邮箱未验证', '请先查收验证邮件并点击确认链接，然后再登录');
         } else {
@@ -144,14 +198,15 @@ export default function LoginScreen() {
   };
 
   const handleForgotPassword = async () => {
-    if (!email.trim() || !validateEmail(email)) {
+    const trimmed = account.trim();
+    if (!trimmed || !isEmail(trimmed)) {
       Alert.alert('提示', '请输入正确的邮箱格式');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const trimmedEmail = email.trim().toLowerCase();
+      const trimmedEmail = trimmed.toLowerCase();
       const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail);
 
       if (error) {
@@ -165,7 +220,7 @@ export default function LoginScreen() {
           '重置链接已发送',
           `已向 ${trimmedEmail} 发送密码重置链接，请查收邮件并点击链接完成密码修改。`,
         );
-        setEmail('');
+        setAccount('');
       }
     } catch (error) {
       Alert.alert('操作失败', '网络连接异常，请稍后重试');
@@ -189,17 +244,17 @@ export default function LoginScreen() {
 
       {/* 表单区域 */}
       <View style={s.form}>
-        {/* 邮箱输入 */}
+        {/* 邮箱/手机号输入 */}
         <View style={s.inputContainer}>
-          <Text style={s.label}>邮箱</Text>
+          <Text style={s.label}>邮箱/手机号</Text>
           <View style={s.inputWrapper}>
             <Feather name="mail" size={18} color="#666" />
             <TextInput
               style={s.input}
-              placeholder="请输入邮箱"
+              placeholder="请输入邮箱或手机号"
               placeholderTextColor="#666666"
-              value={email}
-              onChangeText={setEmail}
+              value={account}
+              onChangeText={setAccount}
               keyboardType="email-address"
               autoCapitalize="none"
             />
