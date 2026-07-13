@@ -3,13 +3,13 @@
  *
  * 功能：
  * 1. STT（语音转文字）：优先调用腾讯云 ASR SentenceRecognition，失败时回退到讯飞 IAT
- * 2. LLM（大模型对话）：调用智谱 GLM-4-Flash（免费模型，OpenAI 兼容格式），
+ * 2. LLM（大模型对话）：调用 DeepSeek Chat（OpenAI 兼容格式），
  *    使用专属 System Prompt 实现中英混说智能纠错
  *
  * 依赖：
  * - tencentAsrService.ts: transcribeWithTencent (STT 主引擎)
  * - iflytekService.ts: transcribeWithIflytek (STT 回退引擎)
- * - 环境变量：EXPO_PUBLIC_ZHIPU_API_KEY
+ * - 环境变量：EXPO_PUBLIC_DEEPSEEK_API_KEY
  *
  * 环境变量说明（需在 .env 中配置）：
  * - EXPO_PUBLIC_TENCENT_SECRET_ID / TENCENT_SECRET_ID: 腾讯云 API 密钥 ID
@@ -17,17 +17,17 @@
  * - EXPO_PUBLIC_XF_APP_ID / XF_APP_ID: 讯飞 APP ID（回退用）
  * - EXPO_PUBLIC_XF_API_KEY / XF_API_KEY: 讯飞 API Key（回退用）
  * - EXPO_PUBLIC_XF_API_SECRET / XF_API_SECRET: 讯飞 API Secret（回退用）
- * - EXPO_PUBLIC_ZHIPU_API_KEY: 智谱 AI API Key（用于 GLM-4-Flash 对话）
+ * - EXPO_PUBLIC_DEEPSEEK_API_KEY: DeepSeek API Key（用于 AI 对话）
  */
 
 import { transcribeWithIflytek } from './iflytekService';
 import { transcribeWithTencent } from './tencentAsrService';
 
-// ====== 智谱 GLM-4-Flash 配置（免费模型） ======
-const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-// 从环境变量读取（需要在 .env 中配置 EXPO_PUBLIC_ZHIPU_API_KEY）
-const ZHIPU_API_KEY = process.env.EXPO_PUBLIC_ZHIPU_API_KEY || '';
-const ZHIPU_MODEL_NAME = 'GLM-4-Flash';
+// ====== DeepSeek Chat 配置 ======
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+// 从环境变量读取（需要在 .env 中配置 EXPO_PUBLIC_DEEPSEEK_API_KEY）
+const DEEPSEEK_API_KEY = process.env.EXPO_PUBLIC_DEEPSEEK_API_KEY || '';
+const DEEPSEEK_MODEL_NAME = 'deepseek-chat';
 const LLM_TIMEOUT_MS = 30000;
 
 // ====== 对话历史管理 ======
@@ -198,15 +198,15 @@ function buildMessages(
   return messages;
 }
 
-// ====== 调用智谱 GLM-4-Flash API 获取 AI 回复（免费模型） ======
+// ====== 调用 DeepSeek Chat API 获取 AI 回复 ======
 export async function getAiReply(
   userText: string,
   history: ConversationMessage[]
 ): Promise<string> {
-  const apiKey = ZHIPU_API_KEY;
+  const apiKey = DEEPSEEK_API_KEY;
 
   if (!apiKey) {
-    console.warn('[aiConversationService] 智谱 API Key 未配置，使用模拟回复');
+    console.warn('[aiConversationService] DeepSeek API Key 未配置，使用模拟回复');
     return getFallbackReply(userText);
   }
 
@@ -220,7 +220,7 @@ export async function getAiReply(
   });
 
   const requestBody = {
-    model: ZHIPU_MODEL_NAME,
+    model: DEEPSEEK_MODEL_NAME,
     messages,
     max_tokens: 150,        // 限制回复长度，避免冗长（从256降至150）
     temperature: 0.8,       // 降低温度，使回复更稳定、更准确
@@ -231,7 +231,7 @@ export async function getAiReply(
   const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
 
   try {
-    const response = await fetch(ZHIPU_API_URL, {
+    const response = await fetch(DEEPSEEK_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -246,7 +246,7 @@ export async function getAiReply(
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
       console.error(
-        `[aiConversationService] 智谱 API 请求失败 (${response.status}): ${errorBody || response.statusText}`
+        `[aiConversationService] DeepSeek API 请求失败 (${response.status}): ${errorBody || response.statusText}`
       );
       return getFallbackReply(userText);
     }
@@ -255,7 +255,7 @@ export async function getAiReply(
     const content = result.choices?.[0]?.message?.content;
 
     if (!content) {
-      console.warn('[aiConversationService] 智谱 API 返回内容为空');
+      console.warn('[aiConversationService] DeepSeek API 返回内容为空');
       return getFallbackReply(userText);
     }
 
@@ -264,9 +264,9 @@ export async function getAiReply(
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      console.warn('[aiConversationService] 智谱请求超时');
+      console.warn('[aiConversationService] DeepSeek 请求超时');
     } else {
-      console.error('[aiConversationService] 智谱请求失败:', error.message);
+      console.error('[aiConversationService] DeepSeek 请求失败:', error.message);
     }
     return getFallbackReply(userText);
   }

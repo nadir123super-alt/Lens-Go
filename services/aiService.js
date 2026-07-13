@@ -457,29 +457,24 @@ async function generatePhrasesWithAI(label, apiKey) {
   const messages = [
     {
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text:
-            `你是一个英语老师。用户查询了单词"${label}"，` +
-            `请针对这个单词给出 2 个短小地道的英语口语例句，并带中文翻译。严禁任何开场白，直接返回纯 JSON。\n` +
-            `使用极简字段名：e 表示英文，c 表示中文。\n` +
-            `生成的英文例句单词之间保持正常空格。\n` +
-            `关键要求：生成的中文翻译必须根据语义词组使用空格进行分隔。例如：不要输出'他正在吃苹果'，必须输出'他 正在 吃 苹果'。\n` +
-            `在生成中文翻译时，请按自然的语义词组（而不是单个汉字）进行空格分隔。例如：输出'煎鱼 的 时候 记得 打开 抽油烟机'，而不是'煎 鱼 的 时 候...'。\n` +
-            `确保专有名词（如'抽油烟机'、'冰箱'）作为一个整体词块，中间不要加空格。\n` +
-            `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中，只能有一个句号或感叹号或问号。\n` +
-            `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
-            `必须且只能返回 JSON 格式数据，结构如下（不要 Markdown 标记）：\n` +
-            `{"phrases":[{"e":"英文例句1","c":"中文翻译1"},{"e":"英文例句2","c":"中文翻译2"}]}\n` +
-            `请确保 JSON 结构完整，必须以 } 结尾。`,
-        },
-      ],
+      content:
+        `你是一个英语老师。用户查询了单词"${label}"，` +
+        `请针对这个单词给出 2 个短小地道的英语口语例句，并带中文翻译。严禁任何开场白，直接返回纯 JSON。\n` +
+        `使用极简字段名：e 表示英文，c 表示中文。\n` +
+        `生成的英文例句单词之间保持正常空格。\n` +
+        `关键要求：生成的中文翻译必须根据语义词组使用空格进行分隔。例如：不要输出'他正在吃苹果'，必须输出'他 正在 吃 苹果'。\n` +
+        `在生成中文翻译时，请按自然的语义词组（而不是单个汉字）进行空格分隔。例如：输出'煎鱼 的 时候 记得 打开 抽油烟机'，而不是'煎 鱼 的 时 候...'。\n` +
+        `确保专有名词（如'抽油烟机'、'冰箱'）作为一个整体词块，中间不要加空格。\n` +
+        `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中，只能有一个句号或感叹号或问号。\n` +
+        `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
+        `必须且只能返回 JSON 格式数据，结构如下（不要 Markdown 标记）：\n` +
+        `{"phrases":[{"e":"英文例句1","c":"中文翻译1"},{"e":"英文例句2","c":"中文翻译2"}]}\n` +
+        `请确保 JSON 结构完整，必须以 } 结尾。`,
     },
   ];
 
   const requestBody = {
-    model: 'glm-4.6v',
+    model: 'deepseek-chat',
     messages: messages,
     max_tokens: 1024,
     temperature: 0.5,
@@ -490,11 +485,11 @@ async function generatePhrasesWithAI(label, apiKey) {
 
   let response;
   try {
-    response = await fetch(ZHIPU_API_URL, {
+    response = await fetch(DEEPSEEK_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
@@ -555,27 +550,22 @@ export async function searchWordDefinition(word, apiKey) {
   const messages = [
     {
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text:
-            `你是一个权威英语词典。请针对单词"${word}"，给出：\n` +
-            `1. 中文翻译\n` +
-            `2. 词性及详细用法说明\n` +
-            `3. 3个不同语境下的地道例句\n` +
-            `使用极简字段名：l 表示英文名，t 表示中文翻译，pos 表示词性，usage 表示用法说明，examples 为例句数组（每个例句 e 表示英文，c 表示中文）。\n` +
-            `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中，只能有一个句号或感叹号或问号。\n` +
-            `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
-            `必须且只能返回纯 JSON（不要 Markdown 标记），结构如下：\n` +
-            `{"l":"${word}","t":"翻译","pos":"词性","usage":"用法说明","examples":[{"e":"例句1","c":"翻译1"},{"e":"例句2","c":"翻译2"},{"e":"例句3","c":"翻译3"}]}\n` +
-            `请确保 JSON 结构完整，必须以 } 结尾。`,
-        },
-      ],
+      content:
+        `你是一个权威英语词典。请针对单词"${word}"，给出：\n` +
+        `1. 中文翻译\n` +
+        `2. 词性及详细用法说明\n` +
+        `3. 3个不同语境下的地道例句\n` +
+        `使用极简字段名：l 表示英文名，t 表示中文翻译，pos 表示词性，usage 表示用法说明，examples 为例句数组（每个例句 e 表示英文，c 表示中文）。\n` +
+        `⚠️ 关键约束：每个 e 字段必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个 e 字段中，只能有一个句号或感叹号或问号。\n` +
+        `⚠️ 每个 c 字段也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
+        `必须且只能返回纯 JSON（不要 Markdown 标记），结构如下：\n` +
+        `{"l":"${word}","t":"翻译","pos":"词性","usage":"用法说明","examples":[{"e":"例句1","c":"翻译1"},{"e":"例句2","c":"翻译2"},{"e":"例句3","c":"翻译3"}]}\n` +
+        `请确保 JSON 结构完整，必须以 } 结尾。`,
     },
   ];
 
   const requestBody = {
-    model: 'glm-4.6v',
+    model: 'deepseek-chat',
     messages: messages,
     max_tokens: 2048,
     temperature: 0.3,
@@ -586,11 +576,11 @@ export async function searchWordDefinition(word, apiKey) {
 
   let response;
   try {
-    response = await fetch(ZHIPU_API_URL, {
+    response = await fetch(DEEPSEEK_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
@@ -865,35 +855,30 @@ async function callAiForWordDetails(word, apiKey) {
   const messages = [
     {
       role: 'user',
-      content: [
-        {
-          type: 'text',
-          text:
-            `你是一个英语词典专家。请为单词 "${word}" 提供：\n` +
-            `1. 中文翻译（definition）\n` +
-            `2. 两个不同语境的地道英语口语例句，每个例句附带中文翻译\n` +
-            `⚠️ 重要：严禁使用 "I see a..."、"I found a..." 这样的简单句式。例句必须是真实场景对话，如询问、描述、感叹、建议等不同语气。\n` +
-            `⚠️ 关键约束：每个英文例句必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个英文例句中，只能有一个句号或感叹号或问号。\n` +
-            `⚠️ 每个中文翻译也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
-            `⚠️ 严格禁止：不得使用任何表情符号（emoji）、颜文字或特殊符号。只返回纯文本内容。\n` +
-            `⚠️ 重要：You MUST return exactly 2 example sentences for each word in JSON format. If you cannot provide them, return an error instead of an empty field.（你必须为每个单词返回准确的 2 个例句。如果无法提供，请返回错误而不是空字段。）\n` +
-            `必须返回纯 JSON 格式（不要任何 Markdown 标记或额外文字）：\n` +
-            `{\n` +
-            `  "word": "${word}",\n` +
-            `  "definition": "中文翻译",\n` +
-            `  "example_en_1": "第一个英文例句",\n` +
-            `  "example_cn_1": "第一个中文翻译",\n` +
-            `  "example_en_2": "第二个英文例句",\n` +
-            `  "example_cn_2": "第二个中文翻译"\n` +
-            `}\n` +
-            `请确保 JSON 结构完整，必须以 } 结尾。`,
-        },
-      ],
+      content:
+        `你是一个英语词典专家。请为单词 "${word}" 提供：\n` +
+        `1. 中文翻译（definition）\n` +
+        `2. 两个不同语境的地道英语口语例句，每个例句附带中文翻译\n` +
+        `⚠️ 重要：严禁使用 "I see a..."、"I found a..." 这样的简单句式。例句必须是真实场景对话，如询问、描述、感叹、建议等不同语气。\n` +
+        `⚠️ 关键约束：每个英文例句必须且只能包含一个完整的英语句子。严禁将两个或多个句子合并到一个英文例句中，只能有一个句号或感叹号或问号。\n` +
+        `⚠️ 每个中文翻译也必须且只能包含一个完整的中文句子，只能有一个句号或感叹号或问号。\n` +
+        `⚠️ 严格禁止：不得使用任何表情符号（emoji）、颜文字或特殊符号。只返回纯文本内容。\n` +
+        `⚠️ 重要：You MUST return exactly 2 example sentences for each word in JSON format. If you cannot provide them, return an error instead of an empty field.（你必须为每个单词返回准确的 2 个例句。如果无法提供，请返回错误而不是空字段。）\n` +
+        `必须返回纯 JSON 格式（不要任何 Markdown 标记或额外文字）：\n` +
+        `{\n` +
+        `  "word": "${word}",\n` +
+        `  "definition": "中文翻译",\n` +
+        `  "example_en_1": "第一个英文例句",\n` +
+        `  "example_cn_1": "第一个中文翻译",\n` +
+        `  "example_en_2": "第二个英文例句",\n` +
+        `  "example_cn_2": "第二个中文翻译"\n` +
+        `}\n` +
+        `请确保 JSON 结构完整，必须以 } 结尾。`,
     },
   ];
 
   const requestBody = {
-    model: 'glm-4.6v',
+    model: 'deepseek-chat',
     messages: messages,
     max_tokens: 2048,
     temperature: 0.3,
@@ -904,11 +889,11 @@ async function callAiForWordDetails(word, apiKey) {
 
   let response;
   try {
-    response = await fetch(ZHIPU_API_URL, {
+    response = await fetch(DEEPSEEK_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,

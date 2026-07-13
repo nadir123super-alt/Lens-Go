@@ -18,8 +18,8 @@
 import { fetchPhrasesForObject } from './aiService';
 import { supabase } from './supabaseClient';
 
-// AI API Key（从环境变量读取）
-const API_KEY = process.env.EXPO_PUBLIC_ZHIPU_API_KEY || '';
+// AI API Key（从环境变量读取 - 文字任务使用 DeepSeek）
+const API_KEY = process.env.EXPO_PUBLIC_DEEPSEEK_API_KEY || '';
 
 // ─── 共享词库操作函数 ─────────────────────────────────────────
 
