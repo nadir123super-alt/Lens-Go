@@ -12,7 +12,7 @@
  *   - 优先级排序：英文完全匹配 > 英文前缀匹配 > 中文包含匹配 > 英文模糊匹配
  */
 import { copyAsync, documentDirectory, downloadAsync, getInfoAsync } from 'expo-file-system/legacy';
-import * as SQLite from 'expo-sqlite';
+import { Platform } from 'react-native';
 
 export interface DictResult {
   word: string;
@@ -22,7 +22,7 @@ export interface DictResult {
 }
 
 // ── SQLite 单例 ──
-let _db: SQLite.SQLiteDatabase | null = null;
+let _db: import('expo-sqlite').SQLiteDatabase | null = null;
 let _dbReady = false;
 let _dbInitPromise: Promise<void> | null = null;
 
@@ -72,6 +72,7 @@ async function copyDatabaseFromAsset(): Promise<string> {
 
 // 初始化 DB
 export async function initDictionary(): Promise<void> {
+  if (Platform.OS === 'web') { _dbReady = true; return; }
   if (_dbReady) return;
   if (_dbInitPromise) return _dbInitPromise;
 
@@ -82,10 +83,10 @@ export async function initDictionary(): Promise<void> {
 
       // 2. 打开 SQLite
       console.log('[dict] 打开数据库:', dbPath);
+      const SQLite = require('expo-sqlite');
       _db = await SQLite.openDatabaseAsync(dbPath);
-
       // 3. 验证表存在
-      const row = await _db.getFirstAsync<{ cnt: number }>(
+      const row = await _db!.getFirstAsync<{ cnt: number }>(
         'SELECT COUNT(*) as cnt FROM words'
       );
       console.log(`[dict] ✅ SQLite 词典就绪，共 ${row?.cnt ?? 0} 词`);
@@ -119,6 +120,7 @@ function isChineseQuery(text: string): boolean {
  * @param topK   - 最大返回条数
  */
 export async function fuzzySearch(query: string, topK = 20): Promise<DictResult[]> {
+  if (Platform.OS === 'web') return [];
   const key = query.trim().toLowerCase();
   if (!key) return [];
 
@@ -184,6 +186,7 @@ export async function fuzzySearch(query: string, topK = 20): Promise<DictResult[
 
 // ── 精确查询（SQLite） ──
 export async function exactMatch(word: string): Promise<DictResult | null> {
+  if (Platform.OS === 'web') return null;
   const key = word.trim().toLowerCase();
   if (!key) return null;
 
