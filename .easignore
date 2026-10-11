@@ -19,3 +19,13 @@ npm-debug.log*
 
 # 隐藏的版本控制文件（保留 .git 规则，但让 EAS 忽略其庞大的历史记录体积）
 .git/
+
+# 词典原始数据源（62.9MB）：仅用于本地生成 assets/dictionary.db，打包时不需要
+ecdict.csv
+
+# 其他构建无关的大文件
+out.txt
+out2.txt
+out3.txt
+vercel/node_modules/
+supabase/.temp/
