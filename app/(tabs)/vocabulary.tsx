@@ -12,17 +12,19 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import * as Image from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    Animated,
-    FlatList,
-    Image as RNImage,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Animated,
+  AppState,
+  FlatList,
+  Image as RNImage,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,6 +36,8 @@ export default function VocabularyScreen() {
   const insets = useSafeAreaInsets();
   const [list, setList] = useState<VocabEntry[]>([]);
   const [searchText, setSearchText] = useState('');
+  // ★ 加载中标记：初始为 true，避免首帧因 list 为空而误显示"还没有生词"空状态
+  const [isLoading, setIsLoading] = useState(true);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const isFirstLoad = useRef(true);
 
@@ -41,14 +45,7 @@ export default function VocabularyScreen() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const DEBOUNCE_MS = list.length > 500 ? 300 : 0;
 
-  // 每次聚焦时刷新
-  useFocusEffect(
-    useCallback(() => {
-      loadVocab();
-    }, [])
-  );
-
-  const loadVocab = async () => {
+  const loadVocab = useCallback(async () => {
     try {
       // 每次都从数据库重新加载，确保获取最新数据（包括刚收藏的单词）
       const data = await getVocabulary();
@@ -65,8 +62,30 @@ export default function VocabularyScreen() {
       }
     } catch (error) {
       console.error('[VocabularyScreen] 加载生词本失败:', error);
+    } finally {
+      // 无论成功失败都结束加载态，避免一直卡在 loading
+      setIsLoading(false);
     }
-  };
+  }, [fadeAnim]);
+
+  // ★ 每次聚焦时刷新（重新进入生词本页 / 新增单词后返回都会触发）
+  useFocusEffect(
+    useCallback(() => {
+      loadVocab();
+    }, [loadVocab])
+  );
+
+  // ★ App 从后台回到前台时自动刷新，避免停留在旧数据/空状态
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        loadVocab();
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [loadVocab]);
 
   // ----- 搜索筛选 -----
   const filteredWords = useMemo(() => {
@@ -203,7 +222,12 @@ export default function VocabularyScreen() {
       </View>
 
       <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-        {filteredWords.length === 0 ? (
+        {isLoading ? (
+          // ★ 首次加载中：显示 loading，而不是误显示"还没有生词"空状态
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color="#FF6B6B" />
+          </View>
+        ) : filteredWords.length === 0 ? (
           <View style={styles.emptyState}>
             {searchText.trim() ? (
               <>
@@ -410,6 +434,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#FFFFFF',
     paddingVertical: 0,
+  },
+
+  // ===== 加载中 =====
+  loadingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // ===== 空状态 =====

@@ -8,7 +8,7 @@
  * 布局结构：
  *   1. 顶部个人资料（圆形头像、昵称、签名）
  *   2. 统计卡片（词汇量、学习天数、勋章）
- *   3. 工具列表（我的成就、语音偏好设置、每日提醒）
+ *   3. 工具列表（我的成就、语音偏好设置）
  *   4. 底部设置
  *
  * 数据来源：
@@ -70,7 +70,7 @@ const statStyles = StyleSheet.create({
 });
 
 /* ─── 菜单项 ─── */
-function MenuRow({ icon, title, subtitle, onPress, color = '#333' }: {
+function MenuRow({ icon, title, subtitle, onPress, color = '#888888' }: {
   icon: keyof typeof Feather.glyphMap; title: string; subtitle?: string;
   onPress: () => void; color?: string;
 }) {
@@ -272,12 +272,6 @@ export default function HomeScreen() {
               icon="mic" title="语音偏好设置"
               subtitle="调节语速，按自己的节奏听英语" color="#4A90D9"
               onPress={() => router.push({ pathname: '/(tabs)/settings', params: { type: 'voice' } })}
-            />
-            <View style={s.divider} />
-            <MenuRow
-              icon="bell" title="每日提醒"
-              subtitle="设置每日学习提醒时间" color="#34C759"
-              onPress={() => router.push({ pathname: '/(tabs)/settings', params: { type: 'reminder' } })}
             />
           </View>
         </View>

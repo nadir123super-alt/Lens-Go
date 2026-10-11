@@ -176,12 +176,6 @@ export default function RootLayout() {
         console.log('[RootLayout] ✅ 语速设置已加载');
       })();
 
-      // 初始化通知处理器
-      (async () => {
-        const { configureNotifications } = await import('@/services/reminderService');
-        configureNotifications();
-      })();
-
       // 发音点击计数由 audioCounter 模块在内存中维护，无需从数据库加载
     }
   }, [showSplash, loaded, error]);

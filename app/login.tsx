@@ -2,12 +2,13 @@
  * LoginScreen — 登录页面（密码登录）
  *
  * 流程：
- * 1. 用户输入手机号/邮箱 + 密码 → 点击"登录" → signInWithPassword 验证
+ * 1. 用户输入邮箱 + 密码 → 点击"登录" → signInWithPassword 验证
  * 2. 验证成功 → 自动创建 session → 跳转首页
  *
  * 支持：
  * - 邮箱登录：直接使用 signInWithPassword
- * - 手机号登录：自动查找对应的邮箱（phone_xxx@lensgo.app），再用邮箱+密码登录
+ *
+ * ★ 说明：手机号登录因短信签名需企业资质，暂不开放，仅保留邮箱登录。
  */
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -35,7 +36,7 @@ export default function LoginScreen() {
   const router = useRouter();
   const { refreshAuthState } = useAuth();
 
-  const [account, setAccount] = useState(''); // 手机号或邮箱
+  const [account, setAccount] = useState(''); // 邮箱
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,11 +55,6 @@ export default function LoginScreen() {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   };
 
-  /** 判断输入是否为手机号 */
-  const isPhone = (value: string): boolean => {
-    return /^1[3-9]\d{9}$/.test(value);
-  };
-
   const translateAuthError = (message: string): string => {
     const errorMap: Record<string, string> = {
       'Invalid login credentials': '账号或密码错误，请重新输入',
@@ -72,37 +68,16 @@ export default function LoginScreen() {
     return errorMap[message] || message;
   };
 
-  /** 根据手机号查找对应的邮箱（phone_xxx@lensgo.app） */
-  const findEmailByPhone = async (phone: string): Promise<string | null> => {
-    try {
-      // 先查 profiles 表
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('phone', phone)
-        .maybeSingle();
-
-      if (error || !profile) {
-        return null;
-      }
-
-      // 手机号注册的用户，邮箱格式为 phone_{phone}@lensgo.app
-      return `phone_${phone}@lensgo.app`;
-    } catch {
-      return null;
-    }
-  };
-
   const handleLogin = async () => {
     const trimmed = account.trim();
 
     // 1. 输入验证
     if (!trimmed) {
-      Alert.alert('提示', '请输入手机号或邮箱');
+      Alert.alert('提示', '请输入邮箱');
       return;
     }
-    if (!isEmail(trimmed) && !isPhone(trimmed)) {
-      Alert.alert('提示', '请输入正确的手机号或邮箱格式');
+    if (!isEmail(trimmed)) {
+      Alert.alert('提示', '请输入正确的邮箱格式');
       return;
     }
     if (!password) {
@@ -117,30 +92,7 @@ export default function LoginScreen() {
     setIsSubmitting(true);
     try {
       // 2. 确定用于登录的邮箱
-      let loginEmail: string;
-      let isPhoneLogin = false;
-
-      if (isPhone(trimmed)) {
-        // 输入的是手机号 → 查找对应的邮箱
-        isPhoneLogin = true;
-        const foundEmail = await findEmailByPhone(trimmed);
-        if (!foundEmail) {
-          setPassword('');
-          Alert.alert(
-            '账号不存在',
-            '该手机号尚未注册，请先注册账号。',
-            [
-              { text: '重新输入', style: 'cancel' },
-              { text: '去注册', onPress: () => (router as any).push('/register') },
-            ],
-          );
-          return;
-        }
-        loginEmail = foundEmail;
-      } else {
-        // 输入的是邮箱
-        loginEmail = trimmed.toLowerCase();
-      }
+      const loginEmail = trimmed.toLowerCase();
 
       // 3. 检查账号是否存在
       console.log('[Login] 检查账号是否存在:', loginEmail);
@@ -159,7 +111,7 @@ export default function LoginScreen() {
         setPassword('');
         Alert.alert(
           '账号不存在',
-          isPhoneLogin ? '该手机号尚未注册，请先注册账号。' : '该邮箱尚未注册，请先注册账号。',
+          '该邮箱尚未注册，请先注册账号。',
           [
             { text: '重新输入', style: 'cancel' },
             { text: '去注册', onPress: () => (router as any).push('/register') },
@@ -244,14 +196,14 @@ export default function LoginScreen() {
 
       {/* 表单区域 */}
       <View style={s.form}>
-        {/* 邮箱/手机号输入 */}
+        {/* 邮箱输入 */}
         <View style={s.inputContainer}>
-          <Text style={s.label}>邮箱/手机号</Text>
+          <Text style={s.label}>邮箱</Text>
           <View style={s.inputWrapper}>
             <Feather name="mail" size={18} color="#666" />
             <TextInput
               style={s.input}
-              placeholder="请输入邮箱或手机号"
+              placeholder="请输入邮箱"
               placeholderTextColor="#666666"
               value={account}
               onChangeText={setAccount}

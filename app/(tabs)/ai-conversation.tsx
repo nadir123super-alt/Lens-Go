@@ -21,6 +21,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  AppState,
   Easing,
   Platform,
   ScrollView,
@@ -204,6 +205,9 @@ export default function AIConversationScreen() {
   // ── 通话结束标记：防止 onSilenceTimeout 异步流程在 endCall 后继续执行 ──
   const callEndedRef = useRef(false);
 
+  // ── 通话进行中标记（同步 isActive，供 useFocusEffect / AppState 回调读取最新值） ──
+  const isActiveRef = useRef(false);
+
   // ====== 全局 TTS 发音管理器 ======
   const { speak: globalSpeak, stop: stopGlobalSpeech } = useGlobalSpeech();
 
@@ -217,15 +221,38 @@ export default function AIConversationScreen() {
     };
   }, [stopGlobalSpeech]);
 
-  // ★ 页面失去焦点时（切换到其他 Tab）立即停止所有音频播放
+  // ★ 页面失去焦点时（切换到其他 Tab / 离开通话页面）立即结束通话
+  // 需求：只有停留在通话页面时才保持通话，离开页面必须自动挂断
   useFocusEffect(
     useCallback(() => {
       return () => {
-        console.log('[ai-conversation] 🚫 页面失去焦点，停止音频播放');
+        console.log('[ai-conversation] 🚫 页面失去焦点，自动结束通话');
+        // 先停止音频播放（立即静音）
         stopGlobalSpeech();
+        // 若通话进行中，则完整走一遍挂断流程（停止录音、清理计时器、保存记录）
+        if (isActiveRef.current) {
+          endCallRef.current?.();
+        }
       };
     }, [stopGlobalSpeech])
   );
+
+  // ★ App 进入后台 / 非活跃状态时自动挂断通话
+  // 需求：App 处于后台时也要自动挂断，只有停留在通话页面才保持通话
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      // 'active' 表示 App 在前台；'background' / 'inactive' 表示离开前台
+      if (nextState !== 'active' && isActiveRef.current) {
+        console.log('[ai-conversation] 📴 App 进入后台，自动结束通话');
+        stopGlobalSpeech();
+        endCallRef.current?.();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [stopGlobalSpeech]);
 
   // ====== 呼吸动画（idle 状态） ======
   useEffect(() => {
@@ -669,6 +696,8 @@ export default function AIConversationScreen() {
   const startCall = useCallback(() => {
     // 重置通话结束标记，允许新的通话流程
     callEndedRef.current = false;
+    // 标记通话进行中（供 useFocusEffect / AppState 回调判断）
+    isActiveRef.current = true;
 
     // AI 通话模块使用稍慢的语速（0.9），不影响其他模块
     setAiConversationRate(0.9);
@@ -744,6 +773,8 @@ export default function AIConversationScreen() {
   const endCall = useCallback(() => {
     // 1. 立即标记通话已结束，阻止 onSilenceTimeout 等异步流程继续执行
     callEndedRef.current = true;
+    // 标记通话已不在进行中（供 useFocusEffect / AppState 回调判断）
+    isActiveRef.current = false;
 
     // 2. 立即恢复全局语速，不影响其他模块
     setAiConversationRate(null);
