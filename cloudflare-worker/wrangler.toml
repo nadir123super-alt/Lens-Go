@@ -1,0 +1,43 @@
+# Cloudflare Worker 配置 — Supabase 反向代理
+#
+# 部署步骤：
+#   1. npm install -g wrangler
+#   2. wrangler login
+#   3. 修改下方 name 和 routes 为你的实际值
+#   4. wrangler deploy
+#
+# 部署后，把 App 的 EXPO_PUBLIC_SUPABASE_URL 改为你的自定义域名。
+
+name = "supabase-proxy"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# ============================================================
+# 环境变量
+# ============================================================
+[vars]
+# 目标 Supabase 项目域名（不要带 https://）
+SUPABASE_HOST = "cqpszvmritgldvzhlbds.supabase.co"
+
+# ============================================================
+# 路由绑定（自定义域名）
+# ============================================================
+# 方式一：使用 Cloudflare 托管的自定义域名（推荐）
+# 在 Cloudflare Dashboard → Workers & Pages → 你的 Worker → Settings → Domains & Routes
+# 添加自定义域名，例如：api.scraplab.cc.cd
+#
+# 方式二：使用 routes（需要域名已托管在 Cloudflare）
+# 取消下面注释并修改为你的域名：
+#
+# routes = [
+#   { pattern = "api.scraplab.cc.cd/*", zone_name = "scraplab.cc.cd" }
+# ]
+
+# ============================================================
+# 可选：自定义域名（Workers 自定义域）
+# ============================================================
+# 如果使用 wrangler 直接绑定自定义域，取消注释：
+#
+# [[routes]]
+# pattern = "api.scraplab.cc.cd"
+# custom_domain = true

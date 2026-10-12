@@ -1,0 +1,14 @@
+{
+  "name": "supabase-proxy-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker 反向代理，绕过 GFW 对 *.supabase.co 的阻断",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}
