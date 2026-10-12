@@ -1,0 +1,13 @@
+{
+  "name": "supabase-proxy-pages",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Pages Functions 反向代理，绕过 GFW 对 *.supabase.co 的阻断",
+  "scripts": {
+    "dev": "wrangler pages dev .",
+    "deploy": "wrangler pages deploy . --project-name=supabase-proxy-pages"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

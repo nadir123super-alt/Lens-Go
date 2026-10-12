@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supabase Proxy</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 640px;
+      margin: 80px auto;
+      padding: 0 20px;
+      color: #333;
+    }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; }
+    .ok { color: #16a34a; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Supabase 反向代理</h1>
+  <p class="ok">✓ 服务运行中</p>
+  <p>本服务用于绕过 GFW 对 <code>*.supabase.co</code> 的阻断。</p>
+  <p>健康检查：<a href="/auth/v1/health">/auth/v1/health</a></p>
+  <p>所有 <code>/auth/v1/*</code>、<code>/rest/v1/*</code>、<code>/storage/v1/*</code>、
+     <code>/functions/v1/*</code>、<code>/realtime/v1/*</code> 请求都会被转发到 Supabase。</p>
+</body>
+</html>

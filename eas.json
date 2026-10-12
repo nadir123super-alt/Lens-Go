@@ -23,7 +23,7 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "https://cqpszvmritgldvzhlbds.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://supabase-proxy-pages-2nj.pages.dev",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxcHN6dm1yaXRnbGR2emhsYmRzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0NjUzNDAsImV4cCI6MjA5NDA0MTM0MH0.Pf_M9i99P62jUhuXPMHb4Q4_HF2yVR7G0N4Cka91s2Y"
       }
     },
@@ -34,7 +34,7 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "https://cqpszvmritgldvzhlbds.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://supabase-proxy-pages-2nj.pages.dev",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxcHN6dm1yaXRnbGR2emhsYmRzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0NjUzNDAsImV4cCI6MjA5NDA0MTM0MH0.Pf_M9i99P62jUhuXPMHb4Q4_HF2yVR7G0N4Cka91s2Y",
         "EXPO_PUBLIC_ZHIPU_API_KEY": "f70c822d62bb4fa488e6cf93401a1ed6.MM9sPamtfzmwXDHv"
       }

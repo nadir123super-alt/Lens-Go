@@ -1,0 +1,17 @@
+# Cloudflare Pages 配置 — Supabase 反向代理
+#
+# 部署步骤：
+#   1. wrangler pages project create supabase-proxy-pages --production-branch=main
+#   2. wrangler pages deploy . --project-name=supabase-proxy-pages
+#   3. 把 App 的 EXPO_PUBLIC_SUPABASE_URL 改为 https://supabase-proxy-pages.pages.dev
+#
+# 说明：Pages 项目的环境变量在 Dashboard 或通过 wrangler pages secret 设置。
+#       下方 [vars] 仅用于本地 wrangler pages dev 调试。
+
+name = "supabase-proxy-pages"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "."
+
+[vars]
+# 目标 Supabase 项目域名（不要带 https://）
+SUPABASE_HOST = "cqpszvmritgldvzhlbds.supabase.co"
