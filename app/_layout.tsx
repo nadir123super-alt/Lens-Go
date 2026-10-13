@@ -80,13 +80,12 @@ const splashStyles = StyleSheet.create({
 function RootLayoutInner() {
   const { authState, isInitializing } = useAuth();
 
-  // ★ 初始化未完成时，不显示任何 loading 提示
-  // Splash 封面消失后，AuthProvider 才开始挂载并初始化。
-  // 此时 isInitializing 为 true，但 Splash 刚结束，用户不会感知到短暂空白。
-  // resolveAuthState() 从 AsyncStorage 读取 session 是毫秒级操作，
-  // 显示 "正在验证身份" 反而会造成闪烁，影响用户体验。
+  // ★ 初始化未完成时显示 Loading，而不是返回 null（null 会导致白屏）
+  // 正常情况下 resolveAuthState() 从 AsyncStorage 读取 session 是毫秒级，
+  // 用户几乎看不到这个 Loading；但网络卡住时（如代理超时），
+  // 显示 Loading 比白屏体验好，且 AuthContext 有 8 秒超时兜底。
   if (isInitializing) {
-    return null;
+    return <FullScreenLoading />;
   }
 
   return (

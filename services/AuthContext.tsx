@@ -46,6 +46,39 @@ export interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 // ============================================================
+// 超时工具
+// ============================================================
+/**
+ * 给 Promise 加超时保护。
+ * 网络卡住（代理慢/被阻断）时，避免 await 永久挂起导致白屏。
+ *
+ * @param promise 原始 Promise
+ * @param ms      超时毫秒数
+ * @param label   日志标签
+ * @returns       超时后 reject，否则返回原 Promise 结果
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`[AuthContext] ${label} 超时（${ms}ms）`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+// 认证初始化超时时间（毫秒）。超过此时间无论网络如何都结束初始化，避免白屏。
+const AUTH_INIT_TIMEOUT_MS = 8000;
+
+// ============================================================
 // Provider
 // ============================================================
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -128,14 +161,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resolvingRef.current = true;
     try {
       // Step 1: 获取当前用户（自动处理 token 刷新）
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      // ★ 加超时保护：网络卡住时最多等待 AUTH_INIT_TIMEOUT_MS，避免白屏
+      const { data: { user }, error: userError } = await withTimeout(
+        supabase.auth.getUser(),
+        AUTH_INIT_TIMEOUT_MS,
+        'getUser'
+      );
 
       if (userError) {
         // getUser 失败：可能是网络错误或 refresh token 过期
         console.warn('[AuthContext] getUser 失败:', userError.message);
 
         // 尝试用 refreshSession 兜底（getUser 在某些版本可能不自动刷新）
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        const { data: refreshData, error: refreshError } = await withTimeout(
+          supabase.auth.refreshSession(),
+          AUTH_INIT_TIMEOUT_MS,
+          'refreshSession'
+        );
         if (refreshError || !refreshData?.session) {
           console.log('[AuthContext] refreshSession 也失败 → unauthenticated');
           setAuthState('unauthenticated');
@@ -254,6 +296,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsInitializing(false);
       setAuthState('unauthenticated');
     } finally {
+      // ★ 无论成功/失败/超时，都必须结束初始化状态，否则 RootLayout 会一直白屏
+      initializedRef.current = true;
+      setIsInitializing(false);
       resolvingRef.current = false;
     }
   };
