@@ -125,18 +125,23 @@ npx eas update:republish --branch preview --group <update-group-id>
 [`app.json`](../app.json) 配置了：
 
 ```json
-"runtimeVersion": {
-  "policy": "appVersion"
-}
+"runtimeVersion": "1.0.0"
 ```
 
 **作用**：OTA 更新只推送给**兼容的 App 版本**。
 
-- 当前 `version: "1.0.0"`，runtimeVersion 也是 `1.0.0`
-- 只有 `1.0.0` 的 App 会收到这些 OTA 更新
-- 如果你改了 `version` 为 `1.1.0`，需要重新构建 APK（因为原生层可能变了）
+- 当前 runtimeVersion 是 `1.0.0`
+- 只有 runtimeVersion 为 `1.0.0` 的 App 会收到这些 OTA 更新
+- 如果你改了 runtimeVersion（如 `1.1.0`），需要重新构建 APK
 
-**重要**：只要不改 `version`，OTA 更新就能一直推送给已安装的用户。
+> ⚠️ **为什么用固定版本号而不是 `{"policy": "appVersion"}`？**
+>
+> 因为项目曾存在 `android/` 目录（bare workflow），EAS 不支持动态策略，会报错：
+> `You're currently using the bare workflow, where runtime version policies are not supported`
+>
+> 现已删除 `android/` 目录回归 CNG 模式，但固定版本号更简单可控，故保留。
+
+**重要**：只要不改 runtimeVersion，OTA 更新就能一直推送给已安装的用户。
 
 ---
 

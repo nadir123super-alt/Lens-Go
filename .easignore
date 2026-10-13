@@ -12,6 +12,12 @@ web-build/
 android/build/
 ios/build/
 
+# ★ 原生目录：使用 CNG（Continuous Native Generation）模式，
+# 由 EAS 根据 app.json 自动生成，不要上传本地版本，
+# 否则 EAS 会判定为 bare workflow，导致 app.json 配置被忽略。
+android/
+ios/
+
 # 日志与调试文件
 yarn-error.log
 npm-debug.log*
