@@ -17,10 +17,15 @@ expo-env.d.ts
 .kotlin/
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+
+# Android 签名凭证（绝对不要提交）
+credentials.json
+release.keystore
 
 # Metro
 .metro-health-check*

@@ -19,10 +19,7 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.READ_CALENDAR",
-        "android.permission.WRITE_CALENDAR"
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "package": "com.lensgo.app"
     },
@@ -46,8 +43,7 @@
       ],
       "expo-audio",
       "expo-sqlite",
-      "expo-asset",
-      "expo-calendar"
+      "expo-asset"
     ],
     "assetBundlePatterns": [
       "assets/*"
