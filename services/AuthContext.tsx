@@ -108,11 +108,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log('[AuthContext] checkProfileExists: 查询 profiles, user.id =', uid);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, email, nickname, avatar_type')
-        .eq('id', uid)
-        .maybeSingle();
+      // ★ 加超时保护：网络卡住时最多等待 AUTH_INIT_TIMEOUT_MS，
+      // 否则 resolvingRef 永远不释放，后续 resolveAuthState 会被永久跳过
+      const { data, error } = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('profiles')
+            .select('id, email, nickname, avatar_type')
+            .eq('id', uid)
+            .maybeSingle()
+        ),
+        AUTH_INIT_TIMEOUT_MS,
+        'checkProfileExists'
+      );
 
       if (error) {
         console.error('[AuthContext] checkProfileExists 查询失败:', error.message);
