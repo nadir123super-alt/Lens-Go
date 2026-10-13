@@ -18,7 +18,7 @@
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease",
-        "credentialsSource": "local"
+        "credentialsSource": "remote"
       },
       "ios": {
         "simulator": true
